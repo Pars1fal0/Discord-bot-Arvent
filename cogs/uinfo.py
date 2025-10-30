@@ -10,7 +10,7 @@ class UserInfo(commands.Cog):
     async def uinfo(self, ctx):
         em = discord.Embed(
             title="**👤 User information**",
-            color=discord.Color.dark_blue()
+            color=discord.Color.blurple()
         )
         user = ctx.author
         ws_ms = int(self.bot.latency * 1000)
