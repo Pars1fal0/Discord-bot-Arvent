@@ -6,6 +6,7 @@ from dotenv import load_dotenv  # <— добавили
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
+        intents.presences = True
         intents.members = True
         intents.message_content = True
         super().__init__(command_prefix='!', intents=intents, help_command=None)
