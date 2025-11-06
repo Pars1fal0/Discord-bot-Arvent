@@ -31,7 +31,7 @@ class Shutdown(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
-    async def restart(self, ctx):
+    async def restarts(self, ctx):
         """Перезагрузить бота (только для владельца)"""
         embed = discord.Embed(
             title="🔄 Перезагрузка бота",
@@ -286,7 +286,7 @@ class Shutdown(commands.Cog):
 
     # Защита от случайного выключения
     @shutdowns.error
-    @restart.error
+    @restarts.error
     @reload.error
     @load.error
     @unload.error
