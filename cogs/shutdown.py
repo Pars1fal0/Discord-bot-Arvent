@@ -11,7 +11,7 @@ class Shutdown(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
-    async def shutdown(self, ctx):
+    async def shutdowns(self, ctx):
         """Выключить бота (только для владельца)"""
         embed = discord.Embed(
             title="🔴 Выключение бота",
@@ -285,7 +285,7 @@ class Shutdown(commands.Cog):
             self.bot.start_time = discord.utils.utcnow()
 
     # Защита от случайного выключения
-    @shutdown.error
+    @shutdowns.error
     @restart.error
     @reload.error
     @load.error
