@@ -1,0 +1,17 @@
+{
+    "1430873717961134122": {
+        "log_channel": 1436029413413224600,
+        "enabled_events": {
+            "message_delete": true,
+            "message_edit": true,
+            "member_join": true,
+            "member_leave": true,
+            "member_ban": true,
+            "member_unban": true,
+            "member_update": true,
+            "role_changes": true,
+            "channel_changes": true,
+            "voice_changes": true
+        }
+    }
+}
