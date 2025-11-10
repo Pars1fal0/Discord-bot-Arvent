@@ -1,6 +1,8 @@
 # cogs/tickets.py
 import asyncio
 import datetime
+import json
+import os
 from io import StringIO
 
 import discord
@@ -8,16 +10,79 @@ from discord.ext import commands
 from discord import app_commands
 from discord.ui import View, Button, Select, Modal, TextInput
 
-# НАСТРОЙКИ – ЗАМЕНИ на свои ID
-SUPPORT_ROLE_ID = 123456789012345678       # роль поддержки
-LOG_CHANNEL_ID = 1436029413413224600       # канал для логов тикетов
-TICKETS_CATEGORY_ID = 1437387793734172774   # категория для тикет-каналов
+# ==== НАСТРОЙКИ, КОТОРЫЕ ПОКА ОСТАВИМ КОНСТАНТАМИ ====
+LOG_CHANNEL_ID = 1437390123741352057  # канал для логов тикетов (укажи свой)
 
 CATEGORY_TITLES = {
     "bug": "Баг",
     "idea": "Идея",
     "complaint": "Жалоба",
 }
+
+CONFIG_FILE = "ticket_config.json"
+
+DEFAULT_CONFIG = {
+    "bug": {"support_role_id": None, "category_id": None},
+    "idea": {"support_role_id": None, "category_id": None},
+    "complaint": {"support_role_id": None, "category_id": None},
+}
+
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # подстрахуемся, что все ключи есть
+            for k, v in DEFAULT_CONFIG.items():
+                if k not in data:
+                    data[k] = v
+                else:
+                    data[k].setdefault("support_role_id", None)
+                    data[k].setdefault("category_id", None)
+            return data
+        except Exception:
+            return DEFAULT_CONFIG.copy()
+    else:
+        return DEFAULT_CONFIG.copy()
+
+
+CONFIG = load_config()
+
+
+def save_config():
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(CONFIG, f, ensure_ascii=False, indent=2)
+
+
+def get_support_role_id_for_type(ticket_type: str):
+    cfg = CONFIG.get(ticket_type)
+    if not cfg:
+        return None
+    return cfg.get("support_role_id")
+
+
+def get_category_id_for_type(ticket_type: str):
+    cfg = CONFIG.get(ticket_type)
+    if not cfg:
+        return None
+    return cfg.get("category_id")
+
+
+def get_all_support_role_ids():
+    ids = set()
+    for cfg in CONFIG.values():
+        rid = cfg.get("support_role_id")
+        if rid:
+            ids.add(rid)
+    return ids
+
+
+def member_is_support(member: discord.Member) -> bool:
+    support_ids = get_all_support_role_ids()
+    if not support_ids:
+        return False
+    return any(role.id in support_ids for role in member.roles)
 
 
 class TicketCloseView(View):
@@ -45,10 +110,9 @@ class TicketCloseView(View):
                 ephemeral=True
             )
 
-        support_role = guild.get_role(SUPPORT_ROLE_ID)
         member = interaction.user
 
-        is_support = support_role in member.roles if support_role else False
+        is_support = member_is_support(member)
         is_admin = member.guild_permissions.administrator
 
         if not (is_support or is_admin):
@@ -120,6 +184,22 @@ class TicketCreateModal(Modal):
         guild = interaction.guild
         user = interaction.user
 
+        # Проверяем наличие категории для данного типа тикета
+        cat_id = get_category_id_for_type(self.category)
+        if not cat_id:
+            return await interaction.response.send_message(
+                "Для этого типа тикета ещё не настроена категория каналов. "
+                "Обратись к администратору.",
+                ephemeral=True
+            )
+
+        category_channel = guild.get_channel(cat_id)
+        if not isinstance(category_channel, discord.CategoryChannel):
+            return await interaction.response.send_message(
+                "Категория для тикетов настроена неверно. Обратись к администратору.",
+                ephemeral=True
+            )
+
         # Проверяем, есть ли уже тикет у пользователя
         existing = discord.utils.get(
             guild.text_channels,
@@ -128,13 +208,6 @@ class TicketCreateModal(Modal):
         if existing:
             return await interaction.response.send_message(
                 f"У тебя уже есть тикет: {existing.mention}",
-                ephemeral=True
-            )
-
-        category_channel = guild.get_channel(TICKETS_CATEGORY_ID)
-        if not isinstance(category_channel, discord.CategoryChannel):
-            return await interaction.response.send_message(
-                "Категория для тикетов не настроена. Обратись к администратору.",
                 ephemeral=True
             )
 
@@ -148,7 +221,8 @@ class TicketCreateModal(Modal):
             )
         }
 
-        support_role = guild.get_role(SUPPORT_ROLE_ID)
+        support_role_id = get_support_role_id_for_type(self.category)
+        support_role = guild.get_role(support_role_id) if support_role_id else None
         if support_role:
             overwrites[support_role] = discord.PermissionOverwrite(
                 view_channel=True,
@@ -181,7 +255,7 @@ class TicketCreateModal(Modal):
 
         content = user.mention
         if support_role:
-            content += f" | <@&{SUPPORT_ROLE_ID}>"
+            content += f" | {support_role.mention}"
 
         await channel.send(
             content=content,
@@ -268,11 +342,14 @@ class TicketPanelView(View):
                 ephemeral=True
             )
 
-        # Категория нужна уже на этом этапе, проверим
-        category = guild.get_channel(TICKETS_CATEGORY_ID)
-        if not isinstance(category, discord.CategoryChannel):
+        # Хоть одна категория должна быть настроена, иначе смысла нет
+        has_any_category = any(
+            get_category_id_for_type(t) for t in CONFIG.keys()
+        )
+        if not has_any_category:
             return await interaction.response.send_message(
-                "Категория для тикетов не настроена. Обратись к администратору.",
+                "Ни для одного типа тикетов не настроена категория каналов. "
+                "Обратись к администратору.",
                 ephemeral=True
             )
 
@@ -285,10 +362,12 @@ class TicketPanelView(View):
 
 
 class Tickets(commands.Cog):
-    """Система тикетов с категориями"""
+    """Система тикетов с категориями и настраиваемыми ролями"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    # === Панель тикетов ===
 
     @commands.command(name="ticketpanel")
     @commands.has_permissions(administrator=True)
@@ -320,6 +399,80 @@ class Tickets(commands.Cog):
         )
         view = TicketPanelView(self.bot)
         await interaction.response.send_message(embed=embed, view=view)
+
+    # === КОМАНДЫ НАСТРОЙКИ РОЛЕЙ И КАТЕГОРИЙ ===
+
+    @commands.command(name="ticketsetrole")
+    @commands.has_permissions(administrator=True)
+    async def ticket_set_role(
+        self,
+        ctx: commands.Context,
+        ticket_type: str,
+        role: discord.Role
+    ):
+        """
+        Установить роль поддержки для типа тикета.
+        Пример: !ticketsetrole bug @Dev
+        """
+        tt = ticket_type.lower()
+        if tt not in CONFIG:
+            return await ctx.send(
+                f"Неизвестный тип тикета: `{ticket_type}`. "
+                f"Доступные: {', '.join(CONFIG.keys())}"
+            )
+
+        CONFIG[tt]["support_role_id"] = role.id
+        save_config()
+        await ctx.send(
+            f"Для типа `{tt}` установлена роль поддержки {role.mention}"
+        )
+
+    @commands.command(name="ticketsetcat")
+    @commands.has_permissions(administrator=True)
+    async def ticket_set_category(
+        self,
+        ctx: commands.Context,
+        ticket_type: str,
+        category: discord.CategoryChannel
+    ):
+        """
+        Установить дискорд-категорию каналов для типа тикета.
+        Пример: !ticketsetcat bug #категория_багов
+        (нужно указать именно категорию, не текстовый канал)
+        """
+        tt = ticket_type.lower()
+        if tt not in CONFIG:
+            return await ctx.send(
+                f"Неизвестный тип тикета: `{ticket_type}`. "
+                f"Доступные: {', '.join(CONFIG.keys())}"
+            )
+
+        CONFIG[tt]["category_id"] = category.id
+        save_config()
+        await ctx.send(
+            f"Для типа `{tt}` установлена категория каналов: **{category.name}**"
+        )
+
+    @commands.command(name="ticketconfig")
+    @commands.has_permissions(administrator=True)
+    async def ticket_show_config(self, ctx: commands.Context):
+        """Показать текущую конфигурацию тикетов."""
+        lines = []
+        for tt, cfg in CONFIG.items():
+            role_id = cfg.get("support_role_id")
+            cat_id = cfg.get("category_id")
+
+            role_str = f"<@&{role_id}>" if role_id else "не задана"
+            cat_str = f"<#{cat_id}>" if cat_id else "не задана"
+
+            lines.append(f"**{tt}** — роль: {role_str}, категория: {cat_str}")
+
+        embed = discord.Embed(
+            title="Конфиг тикетов",
+            description="\n".join(lines) if lines else "Пусто",
+            color=discord.Color.gold()
+        )
+        await ctx.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
