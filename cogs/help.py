@@ -9,16 +9,20 @@ class HelpInfo(commands.Cog):
     @commands.command()
     async def help(self, ctx):
         em = discord.Embed(
-            title="**📘 Available Commands**",
+            title="**📘 Команды для пользователей**",
+            description="Доступные команды, которые не требуют прав администратора.",
             color=discord.Color.blurple()
         )
+
+        general_commands = [
+            "`!help` — показать этот список",
+            "`!sinfo` — информация о сервере",
+            "`!uinfo` — информация о себе"
+        ]
+
         em.add_field(
-            name="No categories:",
-            value=(
-                "`!help` - show available commands\n"
-                "`!sinfo` - show information about the server\n"
-                "`!uinfo` - show information about the user"
-            ),
+            name="Основные команды:",
+            value="\n".join(general_commands),
             inline=False
         )
 
@@ -27,19 +31,17 @@ class HelpInfo(commands.Cog):
             is_admin = ctx.author.guild_permissions.administrator
 
         if not is_admin:
-            em = discord.Embed(
-                title="**📘 Stream commands**",
-                color=discord.Color.blurple()
-            )
+            stream_commands = [
+                "`!stream` — список стрим-команд",
+                "`!stream linktwitch <логин>` — привязать Twitch",
+                "`!stream linkyoutube <channel_id>` — привязать YouTube",
+                "`!stream show [участник]` — посмотреть привязанные аккаунты",
+                "`!stream unlink <twitch|youtube>` — отвязать платформу"
+            ]
+
             em.add_field(
-                name="Streaming tools:",
-                value=(
-                    "`!stream` - list available stream commands\n"
-                    "`!stream linktwitch <login>` - link your Twitch account\n"
-                    "`!stream linkyoutube <channel_id>` - link your YouTube channel\n"
-                    "`!stream show [member]` - show linked accounts (defaults to you)\n"
-                    "`!stream unlink <twitch|youtube>` - remove a linked platform"
-                ),
+                name="Стрим-инструменты:",
+                value="\n".join(stream_commands),
                 inline=False
             )
 
