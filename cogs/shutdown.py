@@ -284,23 +284,6 @@ class Shutdown(commands.Cog):
         if not hasattr(self.bot, 'start_time'):
             self.bot.start_time = discord.utils.utcnow()
 
-    # # Защита от случайного выключения
-    # @shutdowns.error
-    # @restarts.error
-    # @reload.error
-    # @load.error
-    # @unload.error
-    # @cogs_list.error
-    # @bots_status.error
-    # async def owner_only_error(self, ctx, error):
-    #     """Обработчик ошибок для команд только для владельца"""
-    #     if isinstance(error, commands.NotOwner):
-    #         embed = discord.Embed(
-    #             title="❌ Доступ запрещен",
-    #             description="Эта команда только для владельца бота!",
-    #             color=discord.Color.red()
-    #         )
-    #         await ctx.send(embed=embed)
 
 
 async def setup(bot):
