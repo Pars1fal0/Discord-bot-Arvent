@@ -82,3 +82,4 @@ class CommandCatalog(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(CommandCatalog(bot))
+

@@ -49,7 +49,6 @@ def load_config():
 
 CONFIG = load_config()
 
-
 def save_config():
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(CONFIG, f, ensure_ascii=False, indent=2)

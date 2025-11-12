@@ -297,6 +297,7 @@ class Shutdown(commands.Cog):
         if not hasattr(self.bot, 'start_time'):
             self.bot.start_time = discord.utils.utcnow()
 
+
     # Защита от случайного выключения
     @shutdowns.error
     @restarts.error
@@ -314,6 +315,7 @@ class Shutdown(commands.Cog):
                 color=discord.Color.red()
             )
             await ctx.send(embed=embed)
+
 
 
 async def setup(bot):
