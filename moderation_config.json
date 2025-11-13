@@ -1,0 +1,19 @@
+{
+    "1430873717961134122": {
+        "log_channel_id": null,
+        "allowed_domains": [
+            "discord.gg",
+            "youtube.com",
+            "tenor.com",
+            "discord.com",
+            "youtu.be",
+            "media.discordapp.net"
+        ],
+        "blocked_domains": [
+            "vk.com",
+            "t.me",
+            "ok.ru",
+            "telegraph.ph"
+        ]
+    }
+}
