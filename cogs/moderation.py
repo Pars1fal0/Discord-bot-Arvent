@@ -11,6 +11,7 @@ from discord.ext import commands
 
 WARNINGS_FILE = "warnings.json"
 CONFIG_FILE = "moderation_config.json"
+MUTES_FILE = "mutes.json"  # файл для хранения временных мьютов
 
 # Дефолтные списки доменов (для новых серверов)
 DEFAULT_ALLOWED_DOMAINS = {
@@ -36,15 +37,15 @@ CAPS_PERCENT = 0.7
 SPAM_WINDOW = 10   # окно для антифлуда (сек)
 SPAM_THRESHOLD = 3 # сколько сообщений за SPAM_WINDOW считается флудом
 
-FLOOD_MUTE_MINUTES = 5  # <<< Мьют при флуде (в минутах)
+FLOOD_MUTE_MINUTES = 5  # мут при флуде (в минутах)
 
-# Наказания по количеству предупреждений (можно настроить)
-# Сейчас: при 3 варнах → mute (через PUNISHMENTS), остальное выключено
+# Наказания по количеству предупреждений
+# Пример: при 3 варнах → авто-мьют
 PUNISHMENTS = {
     3: "mute"
 }
 MAX_WARNINGS = max(PUNISHMENTS.keys())
-AUTO_MUTE_MINUTES = 10  # длительность авто-мьюта по варну из PUNISHMENTS
+AUTO_MUTE_MINUTES = 10  # длительность авто-мьюта по варну (из PUNISHMENTS)
 
 URL_REGEX = re.compile(r"(https?://[^\s]+)", re.IGNORECASE)
 
@@ -53,21 +54,31 @@ class Moder(commands.Cog):
     """
     Модерация:
     - анти-капс / анти-флуд / фильтр ссылок
-    - система предупреждений
+    - система предупреждений (с наказаниями по PUNISHMENTS)
     - лог-канал
     - настраиваемые списки доменов
+    - ручные мьюты: !mute / !unmute / !tempmute / !muted_list / !muteinfo
     """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.warnings = self.load_warnings()
         self.config = self.load_config()
+        self.mutes = self.load_mutes()  # {guild_id(str): {user_id(str): unmute_ts(float)}}
         # user_messages[guild_id][user_id] = deque[timestamps]
         self.user_messages: dict[int, dict[int, deque]] = defaultdict(lambda: defaultdict(deque))
-        # <<< Запоминаем, когда последний раз наказывали за флуд, чтобы не спамить варнами
         self.last_flood: dict[int, dict[int, float]] = defaultdict(dict)
+        self._mute_task: t.Optional[asyncio.Task] = None
 
-    # ===== Файлы предупреждений и конфигурации =====
+    async def cog_load(self):
+        """Запускаем фонового смотрителя мьютов при загрузке кога."""
+        self._mute_task = self.bot.loop.create_task(self.mute_watcher())
+
+    async def cog_unload(self):
+        if self._mute_task:
+            self._mute_task.cancel()
+
+    # ===== Файлы предупреждений / конфиг / мьюты =====
 
     def load_warnings(self) -> dict:
         try:
@@ -93,6 +104,21 @@ class Moder(commands.Cog):
     def save_config(self) -> None:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(self.config, f, ensure_ascii=False, indent=4)
+
+    def load_mutes(self) -> dict:
+        """Загружаем активные ВРЕМЕННЫЕ мьюты из файла."""
+        try:
+            with open(MUTES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+                return {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def save_mutes(self) -> None:
+        with open(MUTES_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.mutes, f, ensure_ascii=False, indent=4)
 
     def get_guild_config(self, guild: discord.Guild) -> dict:
         """Конфиг для сервера, с дефолтами если ещё нет."""
@@ -145,8 +171,8 @@ class Moder(commands.Cog):
         return (upper_count / len(letters)) >= CAPS_PERCENT
 
     def check_flood(self, message: discord.Message) -> bool:
-        """True, если пользователь флудит."""
-        now = datetime.datetime.utcnow().timestamp()
+        """True, если пользователь флудит (SPAM_THRESHOLD сообщений за SPAM_WINDOW сек)."""
+        now = datetime.datetime.now(datetime.timezone.utc).timestamp()
         guild_id = message.guild.id
         user_id = message.author.id
 
@@ -162,7 +188,7 @@ class Moder(commands.Cog):
     # ===== Домены и ссылки =====
 
     def extract_domains(self, text: str, blocked_domains: set[str]) -> set[str]:
-        """Парсим домены из текста + "голые" заблокированные."""
+        """Парсим домены из текста + 'голые' заблокированные."""
         domains: set[str] = set()
 
         # http(s)-ссылки
@@ -240,7 +266,7 @@ class Moder(commands.Cog):
         embed = discord.Embed(
             title=f"Модерация: {action}",
             color=discord.Color.orange(),
-            timestamp=datetime.datetime.utcnow()
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
         )
 
         if member:
@@ -273,7 +299,7 @@ class Moder(commands.Cog):
 
         await channel.send(embed=embed)
 
-    # ===== Роль Muted (как в твоём Mute-коге) =====
+    # ===== Роль Muted и система мьютов =====
 
     async def create_mute_role(self, guild: discord.Guild):
         """Создаёт/находит роль Muted и настраивает права во всех каналах."""
@@ -307,28 +333,57 @@ class Moder(commands.Cog):
 
         return mute_role
 
-    async def auto_role_unmute(self, member: discord.Member, delay: int):
-        """Авто-снятие роли Muted через delay секунд."""
-        await asyncio.sleep(delay)
+    async def mute_watcher(self):
+        """Периодически проверяет, у кого истёк мут, и снимает роль Muted (даже после перезапуска)."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            changed = False
 
-        try:
-            mute_role = discord.utils.get(member.guild.roles, name="Muted")
-            if mute_role and mute_role in member.roles:
-                await member.remove_roles(mute_role, reason="Авто-размьют (по истечении времени мьюта)")
-                try:
-                    dm_embed = discord.Embed(
-                        title="🔊 Автоматический размьют",
-                        description=f"Ваш мьют на сервере **{member.guild.name}** истёк!",
-                        color=discord.Color.green()
-                    )
-                    await member.send(embed=dm_embed)
-                except Exception:
-                    pass
-        except Exception:
-            # если вышел с сервера / удалена роль и т.п.
-            pass
+            for gid, users in list(self.mutes.items()):
+                guild = self.bot.get_guild(int(gid))
+                if not guild:
+                    continue
 
-    # ===== Наказания по варнам (mute/kick/ban) =====
+                for uid, ts in list(users.items()):
+                    if ts <= now:
+                        member = guild.get_member(int(uid))
+                        mute_role = discord.utils.get(guild.roles, name="Muted")
+                        if member and mute_role and mute_role in member.roles:
+                            try:
+                                await member.remove_roles(mute_role, reason="Авто-размьют (по времени)")
+                            except Exception:
+                                pass
+                        del users[uid]
+                        changed = True
+
+                if not users:
+                    del self.mutes[gid]
+
+            if changed:
+                self.save_mutes()
+
+            await asyncio.sleep(5)
+
+    def register_mute(self, member: discord.Member, unmute_time: datetime.datetime):
+        """Записываем ВРЕМЕННЫЙ мьют в self.mutes + сохраняем в файл."""
+        gid = str(member.guild.id)
+        uid = str(member.id)
+        if gid not in self.mutes:
+            self.mutes[gid] = {}
+        self.mutes[gid][uid] = float(unmute_time.timestamp())
+        self.save_mutes()
+
+    def remove_mute_record(self, guild_id: int, user_id: int):
+        gid = str(guild_id)
+        uid = str(user_id)
+        if gid in self.mutes and uid in self.mutes[gid]:
+            del self.mutes[gid][uid]
+            if not self.mutes[gid]:
+                del self.mutes[gid]
+            self.save_mutes()
+
+    # ===== Наказания по варнам (mute по PUNISHMENTS) =====
 
     async def apply_punishment(
         self,
@@ -343,7 +398,6 @@ class Moder(commands.Cog):
         if not action:
             return
 
-        # --- MUTE через роль Muted (по системе varns) ---
         if action == "mute":
             mute_role = await self.create_mute_role(guild)
             if not mute_role:
@@ -355,7 +409,7 @@ class Moder(commands.Cog):
                 return
 
             duration_sec = AUTO_MUTE_MINUTES * 60
-            unmute_time = datetime.datetime.now() + datetime.timedelta(seconds=duration_sec)
+            unmute_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=duration_sec)
 
             try:
                 await member.add_roles(mute_role, reason=base_reason)
@@ -381,30 +435,30 @@ class Moder(commands.Cog):
 
             # DM пользователю
             try:
+                unmute_ts = int(unmute_time.timestamp())
                 dm_embed = discord.Embed(
                     title="⏰ Вы были временно замьючены",
                     description=f"На сервере **{guild.name}**",
                     color=discord.Color.orange()
                 )
                 dm_embed.add_field(name="Длительность", value=f"{AUTO_MUTE_MINUTES} мин.", inline=True)
-                dm_embed.add_field(name="Размут", value=f"<t:{int(unmute_time.timestamp())}:R>", inline=True)
                 dm_embed.add_field(name="Причина", value=base_reason, inline=False)
+                dm_embed.add_field(name="Размут", value=f"<t:{unmute_ts}:R>", inline=True)
                 await member.send(embed=dm_embed)
             except Exception:
                 pass
 
-            # авто-размьют
-            self.bot.loop.create_task(self.auto_role_unmute(member, duration_sec))
+            # записываем мьют в файл (временный)
+            self.register_mute(member, unmute_time)
 
-        # (kick/ban сейчас не используются, т.к. PUNISHMENTS = {3: "mute"}, но логика оставлена)
-        # после достижения максимума варнов — сбрасываем (после применения наказания)
+        # после достижения максимума варнов — сбрасываем
         if warn_count >= MAX_WARNINGS:
             self.clear_warnings(guild.id, member.id)
 
     async def auto_warn(self, message: discord.Message, reason: str):
         """
-        Общий варн (капс/ссылки и т.п.) + проверка PUNISHMENTS.
-        Для флуда используется отдельная логика, чтобы не выдавать по несколько варнов.
+        Общий авто-варн (капс/ссылки и т.п.) + проверка PUNISHMENTS.
+        Для флуда отдельная логика, чтобы не спамить варнами.
         """
         member = message.author
         guild = message.guild
@@ -442,9 +496,8 @@ class Moder(commands.Cog):
         guild = message.guild
         channel = message.channel
 
-        # варн за флуд
-        warn_count = self.add_warning(guild.id, member.id)
         reason = "флуд (слишком много сообщений за короткое время)"
+        warn_count = self.add_warning(guild.id, member.id)
 
         # ЛС пользователю
         dm_text = (
@@ -466,7 +519,7 @@ class Moder(commands.Cog):
             extra=f"Всего предупреждений: {warn_count}/{MAX_WARNINGS}",
         )
 
-        # мут на FLOOD_MUTE_MINUTES (отдельно от PUNISHMENTS)
+        # мут на FLOOD_MUTE_MINUTES
         mute_role = await self.create_mute_role(guild)
         if not mute_role:
             await channel.send("❌ Не удалось создать или найти роль для мьюта!")
@@ -476,7 +529,7 @@ class Moder(commands.Cog):
             return  # уже замьючен, не дублируем
 
         duration_sec = FLOOD_MUTE_MINUTES * 60
-        unmute_time = datetime.datetime.now() + datetime.timedelta(seconds=duration_sec)
+        unmute_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=duration_sec)
 
         try:
             await member.add_roles(mute_role, reason=reason)
@@ -501,22 +554,23 @@ class Moder(commands.Cog):
 
         # DM про мьют
         try:
+            unmute_ts = int(unmute_time.timestamp())
             dm_embed = discord.Embed(
                 title="⏰ Вы были временно замьючены",
                 description=f"На сервере **{guild.name}**",
                 color=discord.Color.orange()
             )
             dm_embed.add_field(name="Длительность", value=f"{FLOOD_MUTE_MINUTES} мин.", inline=True)
-            dm_embed.add_field(name="Размут", value=f"<t:{int(unmute_time.timestamp())}:R>", inline=True)
             dm_embed.add_field(name="Причина", value=reason, inline=False)
+            dm_embed.add_field(name="Размут", value=f"<t:{unmute_ts}:R>", inline=True)
             await member.send(embed=dm_embed)
         except Exception:
             pass
 
-        # авто-размьют
-        self.bot.loop.create_task(self.auto_role_unmute(member, duration_sec))
+        # записываем мьют в файл
+        self.register_mute(member, unmute_time)
 
-        # при достижении MAX_WARNINGS — чистим варны (чтобы не копились вечно)
+        # при достижении MAX_WARNINGS — чистим варны
         if warn_count >= MAX_WARNINGS:
             self.clear_warnings(guild.id, member.id)
 
@@ -562,14 +616,14 @@ class Moder(commands.Cog):
 
         # 3) флуд
         if self.check_flood(message):
-            now = datetime.datetime.utcnow().timestamp()
+            now = datetime.datetime.now(datetime.timezone.utc).timestamp()
             guild_id = message.guild.id
             user_id = message.author.id
 
             last = self.last_flood[guild_id].get(user_id, 0.0)
 
-            # Если уже наказывали за флуд в ближайшие SPAM_WINDOW сек —
-            # просто удаляем сообщение, НО БЕЗ доп. варнов/мьютов.
+            # если уже наказывали за флуд в ближайшие SPAM_WINDOW сек —
+            # просто удаляем сообщение без доп. варнов/мьютов
             if now - last < SPAM_WINDOW:
                 try:
                     await message.delete()
@@ -588,7 +642,7 @@ class Moder(commands.Cog):
             await self.handle_flood_violation(message)
             return
 
-    # ===== Команды предупреждений =====
+    # ===== Ручные команды предупреждений =====
 
     @commands.command(name="warn")
     @commands.has_permissions(manage_messages=True)
@@ -645,6 +699,327 @@ class Moder(commands.Cog):
         member = member or ctx.author
         count = self.get_warn_count(ctx.guild.id, member.id)
         await ctx.send(f"ℹ️ У {member.mention} сейчас **{count}** предупреждений (из {MAX_WARNINGS}).")
+
+    # ===== Ручные команды мьюта =====
+
+    @commands.command(name="mute")
+    @commands.has_permissions(manage_roles=True)
+    async def manual_mute(self, ctx: commands.Context, member: discord.Member, *, reason: str = "Не указана"):
+        """Замутить пользователя бессрочно (ручная команда)."""
+        if member == ctx.author:
+            await ctx.send("❌ Нельзя замутить самого себя!")
+            return
+
+        if member.guild_permissions.administrator:
+            await ctx.send("❌ Нельзя замутить администратора!")
+            return
+
+        mute_role = await self.create_mute_role(ctx.guild)
+        if not mute_role:
+            await ctx.send("❌ Не удалось создать или найти роль для мьюта!")
+            return
+
+        if mute_role in member.roles:
+            await ctx.send("❌ Этот пользователь уже замьючен!")
+            return
+
+        try:
+            await member.add_roles(mute_role, reason=reason)
+
+            embed = discord.Embed(
+                title="🔇 Пользователь замьючен",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="Пользователь", value=member.mention, inline=True)
+            embed.add_field(name="Модератор", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Причина", value=reason, inline=False)
+            embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+
+            await ctx.send(embed=embed)
+
+            # ЛС пользователю
+            try:
+                dm_embed = discord.Embed(
+                    title="🔇 Вы были замьючены",
+                    description=f"На сервере **{ctx.guild.name}**",
+                    color=discord.Color.red()
+                )
+                dm_embed.add_field(name="Модератор", value=ctx.author.display_name, inline=True)
+                dm_embed.add_field(name="Причина", value=reason, inline=True)
+                await member.send(embed=dm_embed)
+            except Exception:
+                pass
+
+            # лог
+            await self.log_action(
+                ctx.guild,
+                member=member,
+                action="Мьют (ручной)",
+                reason=reason,
+                moderator=ctx.author,
+            )
+
+        except discord.Forbidden:
+            await ctx.send("❌ У меня нет прав для выдачи ролей!")
+
+    @commands.command(name="unmute")
+    @commands.has_permissions(manage_roles=True)
+    async def manual_unmute(self, ctx: commands.Context, member: discord.Member, *, reason: str = "Не указана"):
+        """Размутить пользователя."""
+        mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
+
+        if not mute_role:
+            await ctx.send("❌ Роль для мьюта не найдена!")
+            return
+
+        if mute_role not in member.roles:
+            await ctx.send("❌ Этот пользователь не замьючен!")
+            return
+
+        try:
+            await member.remove_roles(mute_role, reason=reason)
+
+            # удаляем запись о временном мьюте, если была
+            self.remove_mute_record(ctx.guild.id, member.id)
+
+            embed = discord.Embed(
+                title="🔊 Пользователь размьючен",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Пользователь", value=member.mention, inline=True)
+            embed.add_field(name="Модератор", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Причина", value=reason, inline=False)
+            embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+
+            await ctx.send(embed=embed)
+
+            # ЛС пользователю
+            try:
+                dm_embed = discord.Embed(
+                    title="🔊 Вы были размьючены",
+                    description=f"На сервере **{ctx.guild.name}**",
+                    color=discord.Color.green()
+                )
+                dm_embed.add_field(name="Модератор", value=ctx.author.display_name, inline=True)
+                dm_embed.add_field(name="Причина", value=reason, inline=True)
+                await member.send(embed=dm_embed)
+            except Exception:
+                pass
+
+            await self.log_action(
+                ctx.guild,
+                member=member,
+                action="Размьют (ручной)",
+                reason=reason,
+                moderator=ctx.author,
+            )
+
+        except discord.Forbidden:
+            await ctx.send("❌ У меня нет прав для управления ролями!")
+
+    @commands.command(name="tempmute")
+    @commands.has_permissions(manage_roles=True)
+    async def manual_tempmute(self, ctx: commands.Context, member: discord.Member, duration: str, *, reason: str = "Не указана"):
+        """Временно замутить пользователя (пример: 10s, 5m, 1h, 1d)."""
+        if member == ctx.author:
+            await ctx.send("❌ Нельзя замутить самого себя!")
+            return
+
+        if member.guild_permissions.administrator:
+            await ctx.send("❌ Нельзя замутить администратора!")
+            return
+
+        time_units = {
+            's': 1,
+            'm': 60,
+            'h': 3600,
+            'd': 86400
+        }
+
+        try:
+            unit = duration[-1].lower()
+            if unit not in time_units:
+                raise ValueError
+
+            amount = int(duration[:-1])
+            if amount <= 0:
+                raise ValueError
+
+            seconds = amount * time_units[unit]
+            unmute_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=seconds)
+
+        except (ValueError, IndexError):
+            embed = discord.Embed(
+                title="❌ Неверный формат времени",
+                description="Используйте: `10s` (секунды), `5m` (минуты), `1h` (часы), `1d` (дни)",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+
+        mute_role = await self.create_mute_role(ctx.guild)
+        if not mute_role:
+            await ctx.send("❌ Не удалось создать или найти роль для мьюта!")
+            return
+
+        if mute_role in member.roles:
+            await ctx.send("❌ Этот пользователь уже замьючен!")
+            return
+
+        try:
+            await member.add_roles(mute_role, reason=reason)
+
+            # сохраняем мьют как временный
+            self.register_mute(member, unmute_time)
+
+            time_formats = {
+                's': f"{amount} секунд",
+                'm': f"{amount} минут",
+                'h': f"{amount} часов",
+                'd': f"{amount} дней"
+            }
+
+            unmute_ts = int(unmute_time.timestamp())
+
+            embed = discord.Embed(
+                title="⏰ Пользователь временно замьючен",
+                color=discord.Color.orange()
+            )
+            embed.add_field(name="Пользователь", value=member.mention, inline=True)
+            embed.add_field(name="Длительность", value=time_formats[unit], inline=True)
+            embed.add_field(name="Модератор", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Причина", value=reason, inline=False)
+            embed.add_field(name="Размут", value=f"<t:{unmute_ts}:R>", inline=True)
+
+            await ctx.send(embed=embed)
+
+            # ЛС пользователю
+            try:
+                dm_embed = discord.Embed(
+                    title="⏰ Вы были временно замьючены",
+                    description=f"На сервере **{ctx.guild.name}**",
+                    color=discord.Color.orange()
+                )
+                dm_embed.add_field(name="Длительность", value=time_formats[unit], inline=True)
+                dm_embed.add_field(name="Размут", value=f"<t:{unmute_ts}:R>", inline=True)
+                dm_embed.add_field(name="Модератор", value=ctx.author.display_name, inline=False)
+                dm_embed.add_field(name="Причина", value=reason, inline=False)
+                await member.send(embed=dm_embed)
+            except Exception:
+                pass
+
+            await self.log_action(
+                ctx.guild,
+                member=member,
+                action="Временный мьют (ручной)",
+                reason=f"{reason} | {time_formats[unit]}",
+                moderator=ctx.author,
+            )
+
+        except discord.Forbidden:
+            await ctx.send("❌ У меня нет прав для выдачи ролей!")
+
+    @commands.command(name="muted_list")
+    @commands.has_permissions(manage_roles=True)
+    async def muted_list(self, ctx: commands.Context):
+        """Показать список замьюченных пользователей."""
+        mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
+
+        if not mute_role:
+            await ctx.send("❌ Роль для мьюта не найдена!")
+            return
+
+        muted_members = [member for member in ctx.guild.members if mute_role in member.roles]
+
+        if not muted_members:
+            await ctx.send("🔊 На сервере нет замьюченных пользователей!")
+            return
+
+        embed = discord.Embed(
+            title="📋 Список замьюченных пользователей",
+            color=discord.Color.orange()
+        )
+
+        guild_id = str(ctx.guild.id)
+        guild_mutes = self.mutes.get(guild_id, {})
+
+        for i, member in enumerate(muted_members[:10], 1):
+            uid = str(member.id)
+            if uid in guild_mutes:
+                unmute_ts = guild_mutes[uid]
+                time_info = f"Размут: <t:{int(unmute_ts)}:R>"
+            else:
+                time_info = "⏳ Бессрочно"
+
+            embed.add_field(
+                name=f"{i}. {member.display_name}",
+                value=f"{member.mention}\n{time_info}",
+                inline=False
+            )
+
+        if len(muted_members) > 10:
+            embed.set_footer(text=f"И ещё {len(muted_members) - 10} пользователей...")
+
+        await ctx.send(embed=embed)
+
+    @commands.command(name="muteinfo")
+    @commands.has_permissions(manage_roles=True)
+    async def muteinfo(self, ctx: commands.Context, member: discord.Member):
+        """Информация о мьюте пользователя."""
+        mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
+
+        if not mute_role or mute_role not in member.roles:
+            await ctx.send("❌ Этот пользователь не замьючен!")
+            return
+
+        embed = discord.Embed(
+            title=f"ℹ️ Информация о мьюте {member.display_name}",
+            color=discord.Color.blue()
+        )
+
+        embed.add_field(name="Пользователь", value=member.mention, inline=True)
+        embed.add_field(name="Статус", value="🔇 Замьючен", inline=True)
+
+        guild_id = str(ctx.guild.id)
+        uid = str(member.id)
+        guild_mutes = self.mutes.get(guild_id, {})
+
+        if uid in guild_mutes:
+            unmute_ts = guild_mutes[uid]
+            embed.add_field(name="Тип мьюта", value="⏰ Временный", inline=True)
+            embed.add_field(name="Размут", value=f"<t:{int(unmute_ts)}:R>", inline=True)
+            embed.add_field(name="Осталось", value=f"<t:{int(unmute_ts)}:R>", inline=True)
+        else:
+            embed.add_field(name="Тип мьюта", value="⏳ Бессрочный", inline=True)
+
+        embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+
+        await ctx.send(embed=embed)
+
+    # ===== Восстановление мьюта при заходе =====
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """Восстанавливает ВРЕМЕННЫЙ мьют, если пользователь вышел и вернулся до окончания срока."""
+        guild_id = str(member.guild.id)
+        uid = str(member.id)
+
+        if guild_id in self.mutes and uid in self.mutes[guild_id]:
+            unmute_ts = self.mutes[guild_id][uid]
+            now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+            if unmute_ts <= now_ts:
+                # срок уже истёк — чистим запись
+                self.remove_mute_record(member.guild.id, member.id)
+                return
+
+            mute_role = await self.create_mute_role(member.guild)
+            if mute_role:
+                await asyncio.sleep(1)  # немного ждём, пока обновятся роли
+                try:
+                    await member.add_roles(mute_role, reason="Восстановление временного мьюта при повторном входе")
+                except Exception:
+                    pass
 
     # ===== Команды настройки (лог-канал и домены) =====
 
