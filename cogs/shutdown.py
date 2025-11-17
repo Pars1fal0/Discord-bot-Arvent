@@ -5,14 +5,27 @@ import os
 import sys
 
 
+def admin_or_owner():
+    """Проверка на владельца или администратора."""
+
+    async def predicate(ctx):
+        if await ctx.bot.is_owner(ctx.author):
+            return True
+        if ctx.guild and ctx.author.guild_permissions.administrator:
+            return True
+        raise commands.CheckFailure("Эта команда доступна только администраторам или владельцу бота.")
+
+    return commands.check(predicate)
+
+
 class Shutdown(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def shutdowns(self, ctx):
-        """Выключить бота (только для владельца)"""
+        """Выключить бота (только для администраторов)"""
         embed = discord.Embed(
             title="🔴 Выключение бота",
             description="Бот выключается...",
@@ -30,9 +43,9 @@ class Shutdown(commands.Cog):
         await self.bot.close()
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def restarts(self, ctx):
-        """Перезагрузить бота (только для владельца)"""
+        """Перезагрузить бота (только для администраторов)"""
         embed = discord.Embed(
             title="🔄 Перезагрузка бота",
             description="Бот перезагружается...",
@@ -52,9 +65,9 @@ class Shutdown(commands.Cog):
         os.execv(sys.executable, ['python'] + sys.argv)
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def reload(self, ctx, cog: str = None):
-        """Перезагрузить ког или все коги (только для владельца)"""
+        """Перезагрузить ког или все коги (только для администраторов)"""
         if cog:
             # Перезагрузка конкретного кога
             try:
@@ -121,9 +134,9 @@ class Shutdown(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def load(self, ctx, cog: str):
-        """Загрузить ког (только для владельца)"""
+        """Загрузить ког (только для администраторов)"""
         try:
             await self.bot.load_extension(f"cogs.{cog}")
             embed = discord.Embed(
@@ -154,9 +167,9 @@ class Shutdown(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def unload(self, ctx, cog: str):
-        """Выгрузить ког (только для владельца)"""
+        """Выгрузить ког (только для администраторов)"""
         if cog == "shutdown":
             embed = discord.Embed(
                 title="❌ Ошибка",
@@ -190,9 +203,9 @@ class Shutdown(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def cogs_list(self, ctx):
-        """Показать список всех когов (только для владельца)"""
+        """Показать список всех когов (только для администраторов)"""
         loaded_cogs = []
         unloaded_cogs = []
 
@@ -240,9 +253,9 @@ class Shutdown(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @commands.is_owner()
+    @admin_or_owner()
     async def bots_status(self, ctx):
-        """Показать статус бота (только для владельца)"""
+        """Показать статус бота (только для администраторов)"""
         # Статистика бота
         guilds_count = len(self.bot.guilds)
         users_count = len(self.bot.users)
@@ -283,6 +296,25 @@ class Shutdown(commands.Cog):
         """Устанавливает время старта бота"""
         if not hasattr(self.bot, 'start_time'):
             self.bot.start_time = discord.utils.utcnow()
+
+
+    # Защита от случайного выключения
+    @shutdowns.error
+    @restarts.error
+    @reload.error
+    @load.error
+    @unload.error
+    @cogs_list.error
+    @bots_status.error
+    async def owner_only_error(self, ctx, error):
+        """Обработчик ошибок для команд только для администратора или владельца"""
+        if isinstance(error, (commands.CheckFailure, commands.MissingPermissions)):
+            embed = discord.Embed(
+                title="❌ Доступ запрещен",
+                description="Эта команда доступна только администраторам сервера или владельцу бота!",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
 
 
 
