@@ -472,6 +472,5 @@ class TournamentCog(commands.Cog):
 
         await self.send_bracket(ctx, tournament_name)
 
-
 async def setup(bot):
     await bot.add_cog(TournamentCog(bot))
