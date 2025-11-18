@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import asyncio
 from typing import Dict, List, Optional
@@ -215,26 +216,27 @@ class TempVoiceCog(commands.Cog):
             except Exception as e:
                 print(f"Ошибка при удалении канала: {e}")
 
-    @commands.command(name="setup_temp_voice", aliases=["stv", "настройка_голоса"])
-    @commands.has_permissions(administrator=True)
-    async def setup_temp_voice(self, ctx, *, channel_name: str = "➕ Создать комнату"):
-        """Настройка системы временных голосовых каналов
-        Использование: !setup_temp_voice [название канала-создателя]
-        """
+    @app_commands.command(name="setup_temp_voice", description="Настройка системы временных голосовых каналов")
+    @app_commands.describe(channel_name="Название канала-создателя (по умолчанию: '➕ Создать комнату')")
+    @app_commands.default_permissions(administrator=True)
+    async def setup_temp_voice(self, interaction: discord.Interaction, channel_name: str = "➕ Создать комнату"):
+        """Настройка системы временных голосовых каналов"""
+        await interaction.response.defer(ephemeral=True)
+
         try:
             # Создаем канал-создатель
             overwrites = {
-                ctx.guild.default_role: discord.PermissionOverwrite(connect=True, view_channel=True),
-                ctx.guild.me: discord.PermissionOverwrite(manage_channels=True)
+                interaction.guild.default_role: discord.PermissionOverwrite(connect=True, view_channel=True),
+                interaction.guild.me: discord.PermissionOverwrite(manage_channels=True)
             }
 
-            creator_channel = await ctx.guild.create_voice_channel(
+            creator_channel = await interaction.guild.create_voice_channel(
                 name=channel_name,
-                category=ctx.channel.category,
+                category=interaction.channel.category,
                 overwrites=overwrites
             )
 
-            self.voice_creators[ctx.guild.id] = creator_channel.id
+            self.voice_creators[interaction.guild.id] = creator_channel.id
 
             embed = discord.Embed(
                 title="✅ Система временных голосовых каналов настроена!",
@@ -248,21 +250,23 @@ class TempVoiceCog(commands.Cog):
                 inline=False
             )
 
-            await ctx.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
-            await ctx.send(f"❌ Ошибка при настройке: {e}")
+            await interaction.followup.send(f"❌ Ошибка при настройке: {e}", ephemeral=True)
 
-    @commands.command(name="temp_voice_info", aliases=["tvinfo", "инфо_голос"])
-    async def temp_voice_info(self, ctx):
+    @app_commands.command(name="temp_voice_info", description="Информация о системе временных голосовых каналов")
+    async def temp_voice_info(self, interaction: discord.Interaction):
         """Информация о системе временных голосовых каналов"""
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(
             title="🎤 Система временных голосовых каналов",
             color=discord.Color.blue()
         )
 
-        if ctx.guild.id in self.voice_creators:
-            creator_channel = ctx.guild.get_channel(self.voice_creators[ctx.guild.id])
+        if interaction.guild.id in self.voice_creators:
+            creator_channel = interaction.guild.get_channel(self.voice_creators[interaction.guild.id])
             if creator_channel:
                 embed.add_field(
                     name="Канал-создатель",
@@ -272,7 +276,9 @@ class TempVoiceCog(commands.Cog):
 
                 # Считаем активные комнаты
                 active_rooms = sum(
-                    1 for ch_id in self.temp_channels.values() if ch_id["parent_id"] == creator_channel.id)
+                    1 for ch_id, data in self.temp_channels.items()
+                    if data["parent_id"] == creator_channel.id
+                )
                 embed.add_field(
                     name="Активных комнат",
                     value=active_rooms,
@@ -303,26 +309,27 @@ class TempVoiceCog(commands.Cog):
             inline=False
         )
 
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @commands.command(name="transfer_ownership", aliases=["transfer", "передать"])
-    async def transfer_ownership(self, ctx, new_owner: discord.Member):
-        """Передать владение голосовой комнатой
-        Использование: !transfer @пользователь
-        """
+    @app_commands.command(name="transfer_ownership", description="Передать владение голосовой комнатой")
+    @app_commands.describe(new_owner="Новый владелец комнаты")
+    async def transfer_ownership(self, interaction: discord.Interaction, new_owner: discord.Member):
+        """Передать владение голосовой комнатой"""
+        await interaction.response.defer(ephemeral=True)
+
         # Находим канал, где пользователь является владельцем
         user_channel = None
         for channel_id, data in self.temp_channels.items():
-            if data["owner_id"] == ctx.author.id:
-                user_channel = ctx.guild.get_channel(channel_id)
+            if data["owner_id"] == interaction.user.id:
+                user_channel = interaction.guild.get_channel(channel_id)
                 break
 
         if not user_channel:
-            await ctx.send("❌ Вы не являетесь владельцем голосовой комнаты!")
+            await interaction.followup.send("❌ Вы не являетесь владельцем голосовой комнаты!", ephemeral=True)
             return
 
         if new_owner.bot:
-            await ctx.send("❌ Нельзя передать владение боту!")
+            await interaction.followup.send("❌ Нельзя передать владение боту!", ephemeral=True)
             return
 
         # Обновляем владельца
@@ -330,7 +337,7 @@ class TempVoiceCog(commands.Cog):
 
         # Обновляем права
         overwrites = user_channel.overwrites
-        overwrites[ctx.author] = discord.PermissionOverwrite(connect=True, view_channel=True)
+        overwrites[interaction.user] = discord.PermissionOverwrite(connect=True, view_channel=True)
         overwrites[new_owner] = discord.PermissionOverwrite(manage_channels=True, manage_roles=True, move_members=True)
 
         await user_channel.edit(overwrites=overwrites)
@@ -342,7 +349,7 @@ class TempVoiceCog(commands.Cog):
             color=discord.Color.green()
         )
 
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # Методы для изменения настроек
     async def rename_channel(self, channel_id, new_name):

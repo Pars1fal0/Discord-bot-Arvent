@@ -7,6 +7,7 @@ import asyncio
 import typing as t
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 WARNINGS_FILE = "warnings.json"
@@ -34,8 +35,8 @@ DEFAULT_BLOCKED_DOMAINS = {
 CAPS_MIN_LENGTH = 10
 CAPS_PERCENT = 0.7
 
-SPAM_WINDOW = 10   # окно для антифлуда (сек)
-SPAM_THRESHOLD = 3 # сколько сообщений за SPAM_WINDOW считается флудом
+SPAM_WINDOW = 10  # окно для антифлуда (сек)
+SPAM_THRESHOLD = 3  # сколько сообщений за SPAM_WINDOW считается флудом
 
 FLOOD_MUTE_MINUTES = 5  # мут при флуде (в минутах)
 
@@ -57,7 +58,7 @@ class Moder(commands.Cog):
     - система предупреждений (с наказаниями по PUNISHMENTS)
     - лог-канал
     - настраиваемые списки доменов
-    - ручные мьюты: !mute / !unmute / !tempmute / !muted_list / !muteinfo
+    - ручные мьюты: /mute / /unmute / /tempmute / /muted_list / /muteinfo
     """
 
     def __init__(self, bot: commands.Bot):
@@ -249,15 +250,15 @@ class Moder(commands.Cog):
         return None
 
     async def log_action(
-        self,
-        guild: discord.Guild,
-        *,
-        member: t.Optional[discord.Member] = None,
-        action: str,
-        reason: t.Optional[str] = None,
-        moderator: t.Any = None,
-        message: t.Optional[discord.Message] = None,
-        extra: t.Optional[str] = None,
+            self,
+            guild: discord.Guild,
+            *,
+            member: t.Optional[discord.Member] = None,
+            action: str,
+            reason: t.Optional[str] = None,
+            moderator: t.Any = None,
+            message: t.Optional[discord.Message] = None,
+            extra: t.Optional[str] = None,
     ):
         channel = self.get_log_channel(guild)
         if channel is None:
@@ -386,12 +387,12 @@ class Moder(commands.Cog):
     # ===== Наказания по варнам (mute по PUNISHMENTS) =====
 
     async def apply_punishment(
-        self,
-        member: discord.Member,
-        warn_count: int,
-        base_reason: str,
-        source_channel: discord.abc.Messageable,
-        auto: bool = True,
+            self,
+            member: discord.Member,
+            warn_count: int,
+            base_reason: str,
+            source_channel: discord.abc.Messageable,
+            auto: bool = True,
     ):
         guild = member.guild
         action = PUNISHMENTS.get(warn_count)
@@ -642,17 +643,24 @@ class Moder(commands.Cog):
             await self.handle_flood_violation(message)
             return
 
-    # ===== Ручные команды предупреждений =====
+    # ===== СЛЭШ-КОМАНДЫ ПРЕДУПРЕЖДЕНИЙ =====
 
-    @commands.command(name="warn")
-    @commands.has_permissions(manage_messages=True)
-    async def warn_command(self, ctx: commands.Context, member: discord.Member, *, reason: str = "Нарушение правил"):
+    @app_commands.command(name="warn", description="Выдать предупреждение пользователю")
+    @app_commands.describe(
+        member="Пользователь для выдачи предупреждения",
+        reason="Причина предупреждения"
+    )
+    @app_commands.default_permissions(manage_messages=True)
+    async def warn_command(self, interaction: discord.Interaction, member: discord.Member,
+                           reason: str = "Нарушение правил"):
         """Выдать варн вручную (и автоматически наказать по PUNISHMENTS)."""
-        warn_count = self.add_warning(ctx.guild.id, member.id)
+        await interaction.response.defer(ephemeral=True)
+
+        warn_count = self.add_warning(interaction.guild.id, member.id)
 
         # ЛС пользователю
         dm_text = (
-            f"⚠️ Ты получил предупреждение на сервере **{ctx.guild.name}** "
+            f"⚠️ Ты получил предупреждение на сервере **{interaction.guild.name}** "
             f"за **{reason}** (**{warn_count}/{MAX_WARNINGS}**)."
         )
         try:
@@ -661,66 +669,78 @@ class Moder(commands.Cog):
             pass
 
         # Краткое подтверждение в канал для модератора
-        await ctx.send(
+        await interaction.followup.send(
             f"✅ Предупреждение выдано пользователю {member.mention} "
             f"(**{warn_count}/{MAX_WARNINGS}**)."
         )
 
         await self.log_action(
-            ctx.guild,
+            interaction.guild,
             member=member,
             action="Предупреждение",
             reason=reason,
-            moderator=ctx.author,
+            moderator=interaction.user,
             extra=f"Всего предупреждений: {warn_count}/{MAX_WARNINGS}",
         )
 
-        await self.apply_punishment(member, warn_count, reason, ctx.channel, auto=False)
+        await self.apply_punishment(member, warn_count, reason, interaction.channel, auto=False)
 
-    @commands.command(name="unwarn")
-    @commands.has_permissions(manage_messages=True)
-    async def unwarn_command(self, ctx: commands.Context, member: discord.Member):
+    @app_commands.command(name="unwarn", description="Сбросить все предупреждения пользователя")
+    @app_commands.describe(member="Пользователь для сброса предупреждений")
+    @app_commands.default_permissions(manage_messages=True)
+    async def unwarn_command(self, interaction: discord.Interaction, member: discord.Member):
         """Сбросить все варны у пользователя."""
-        self.clear_warnings(ctx.guild.id, member.id)
-        await ctx.send(f"✅ Все предупреждения с {member.mention} сняты.")
+        await interaction.response.defer(ephemeral=True)
+
+        self.clear_warnings(interaction.guild.id, member.id)
+        await interaction.followup.send(f"✅ Все предупреждения с {member.mention} сняты.")
 
         await self.log_action(
-            ctx.guild,
+            interaction.guild,
             member=member,
             action="Снятие предупреждений",
             reason="Сброс варнов командой unwarn",
-            moderator=ctx.author,
+            moderator=interaction.user,
         )
 
-    @commands.command(name="warnings")
-    @commands.has_permissions(manage_messages=True)
-    async def warnings_command(self, ctx: commands.Context, member: discord.Member = None):
+    @app_commands.command(name="warnings", description="Посмотреть количество предупреждений")
+    @app_commands.describe(member="Пользователь для проверки (по умолчанию - вы)")
+    @app_commands.default_permissions(manage_messages=True)
+    async def warnings_command(self, interaction: discord.Interaction, member: discord.Member = None):
         """Посмотреть кол-во варнов."""
-        member = member or ctx.author
-        count = self.get_warn_count(ctx.guild.id, member.id)
-        await ctx.send(f"ℹ️ У {member.mention} сейчас **{count}** предупреждений (из {MAX_WARNINGS}).")
+        await interaction.response.defer(ephemeral=True)
 
-    # ===== Ручные команды мьюта =====
+        member = member or interaction.user
+        count = self.get_warn_count(interaction.guild.id, member.id)
+        await interaction.followup.send(f"ℹ️ У {member.mention} сейчас **{count}** предупреждений (из {MAX_WARNINGS}).")
 
-    @commands.command(name="mute")
-    @commands.has_permissions(manage_roles=True)
-    async def manual_mute(self, ctx: commands.Context, member: discord.Member, *, reason: str = "Не указана"):
+    # ===== СЛЭШ-КОМАНДЫ МЬЮТОВ =====
+
+    @app_commands.command(name="mute", description="Замутить пользователя бессрочно")
+    @app_commands.describe(
+        member="Пользователь для мьюта",
+        reason="Причина мьюта"
+    )
+    @app_commands.default_permissions(manage_roles=True)
+    async def manual_mute(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Не указана"):
         """Замутить пользователя бессрочно (ручная команда)."""
-        if member == ctx.author:
-            await ctx.send("❌ Нельзя замутить самого себя!")
+        await interaction.response.defer()
+
+        if member == interaction.user:
+            await interaction.followup.send("❌ Нельзя замутить самого себя!", ephemeral=True)
             return
 
         if member.guild_permissions.administrator:
-            await ctx.send("❌ Нельзя замутить администратора!")
+            await interaction.followup.send("❌ Нельзя замутить администратора!", ephemeral=True)
             return
 
-        mute_role = await self.create_mute_role(ctx.guild)
+        mute_role = await self.create_mute_role(interaction.guild)
         if not mute_role:
-            await ctx.send("❌ Не удалось создать или найти роль для мьюта!")
+            await interaction.followup.send("❌ Не удалось создать или найти роль для мьюта!", ephemeral=True)
             return
 
         if mute_role in member.roles:
-            await ctx.send("❌ Этот пользователь уже замьючен!")
+            await interaction.followup.send("❌ Этот пользователь уже замьючен!", ephemeral=True)
             return
 
         try:
@@ -731,20 +751,20 @@ class Moder(commands.Cog):
                 color=discord.Color.red()
             )
             embed.add_field(name="Пользователь", value=member.mention, inline=True)
-            embed.add_field(name="Модератор", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
             embed.add_field(name="Причина", value=reason, inline=False)
             embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
 
-            await ctx.send(embed=embed)
+            await interaction.followup.send(embed=embed)
 
             # ЛС пользователю
             try:
                 dm_embed = discord.Embed(
                     title="🔇 Вы были замьючены",
-                    description=f"На сервере **{ctx.guild.name}**",
+                    description=f"На сервере **{interaction.guild.name}**",
                     color=discord.Color.red()
                 )
-                dm_embed.add_field(name="Модератор", value=ctx.author.display_name, inline=True)
+                dm_embed.add_field(name="Модератор", value=interaction.user.display_name, inline=True)
                 dm_embed.add_field(name="Причина", value=reason, inline=True)
                 await member.send(embed=dm_embed)
             except Exception:
@@ -752,81 +772,95 @@ class Moder(commands.Cog):
 
             # лог
             await self.log_action(
-                ctx.guild,
+                interaction.guild,
                 member=member,
                 action="Мьют (ручной)",
                 reason=reason,
-                moderator=ctx.author,
+                moderator=interaction.user,
             )
 
         except discord.Forbidden:
-            await ctx.send("❌ У меня нет прав для выдачи ролей!")
+            await interaction.followup.send("❌ У меня нет прав для выдачи ролей!", ephemeral=True)
 
-    @commands.command(name="unmute")
-    @commands.has_permissions(manage_roles=True)
-    async def manual_unmute(self, ctx: commands.Context, member: discord.Member, *, reason: str = "Не указана"):
+    @app_commands.command(name="unmute", description="Размутить пользователя")
+    @app_commands.describe(
+        member="Пользователь для размьюта",
+        reason="Причина размьюта"
+    )
+    @app_commands.default_permissions(manage_roles=True)
+    async def manual_unmute(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Не указана"):
         """Размутить пользователя."""
-        mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
+        await interaction.response.defer()
+
+        mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
 
         if not mute_role:
-            await ctx.send("❌ Роль для мьюта не найдена!")
+            await interaction.followup.send("❌ Роль для мьюта не найдена!", ephemeral=True)
             return
 
         if mute_role not in member.roles:
-            await ctx.send("❌ Этот пользователь не замьючен!")
+            await interaction.followup.send("❌ Этот пользователь не замьючен!", ephemeral=True)
             return
 
         try:
             await member.remove_roles(mute_role, reason=reason)
 
             # удаляем запись о временном мьюте, если была
-            self.remove_mute_record(ctx.guild.id, member.id)
+            self.remove_mute_record(interaction.guild.id, member.id)
 
             embed = discord.Embed(
                 title="🔊 Пользователь размьючен",
                 color=discord.Color.green()
             )
             embed.add_field(name="Пользователь", value=member.mention, inline=True)
-            embed.add_field(name="Модератор", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
             embed.add_field(name="Причина", value=reason, inline=False)
             embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
 
-            await ctx.send(embed=embed)
+            await interaction.followup.send(embed=embed)
 
             # ЛС пользователю
             try:
                 dm_embed = discord.Embed(
                     title="🔊 Вы были размьючены",
-                    description=f"На сервере **{ctx.guild.name}**",
+                    description=f"На сервере **{interaction.guild.name}**",
                     color=discord.Color.green()
                 )
-                dm_embed.add_field(name="Модератор", value=ctx.author.display_name, inline=True)
+                dm_embed.add_field(name="Модератор", value=interaction.user.display_name, inline=True)
                 dm_embed.add_field(name="Причина", value=reason, inline=True)
                 await member.send(embed=dm_embed)
             except Exception:
                 pass
 
             await self.log_action(
-                ctx.guild,
+                interaction.guild,
                 member=member,
                 action="Размьют (ручной)",
                 reason=reason,
-                moderator=ctx.author,
+                moderator=interaction.user,
             )
 
         except discord.Forbidden:
-            await ctx.send("❌ У меня нет прав для управления ролями!")
+            await interaction.followup.send("❌ У меня нет прав для управления ролями!", ephemeral=True)
 
-    @commands.command(name="tempmute")
-    @commands.has_permissions(manage_roles=True)
-    async def manual_tempmute(self, ctx: commands.Context, member: discord.Member, duration: str, *, reason: str = "Не указана"):
+    @app_commands.command(name="tempmute", description="Временно замутить пользователя")
+    @app_commands.describe(
+        member="Пользователь для временного мьюта",
+        duration="Длительность мьюта (10s, 5m, 1h, 1d)",
+        reason="Причина мьюта"
+    )
+    @app_commands.default_permissions(manage_roles=True)
+    async def manual_tempmute(self, interaction: discord.Interaction, member: discord.Member, duration: str,
+                              reason: str = "Не указана"):
         """Временно замутить пользователя (пример: 10s, 5m, 1h, 1d)."""
-        if member == ctx.author:
-            await ctx.send("❌ Нельзя замутить самого себя!")
+        await interaction.response.defer()
+
+        if member == interaction.user:
+            await interaction.followup.send("❌ Нельзя замутить самого себя!", ephemeral=True)
             return
 
         if member.guild_permissions.administrator:
-            await ctx.send("❌ Нельзя замутить администратора!")
+            await interaction.followup.send("❌ Нельзя замутить администратора!", ephemeral=True)
             return
 
         time_units = {
@@ -854,16 +888,16 @@ class Moder(commands.Cog):
                 description="Используйте: `10s` (секунды), `5m` (минуты), `1h` (часы), `1d` (дни)",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await interaction.followup.send(embed=embed)
             return
 
-        mute_role = await self.create_mute_role(ctx.guild)
+        mute_role = await self.create_mute_role(interaction.guild)
         if not mute_role:
-            await ctx.send("❌ Не удалось создать или найти роль для мьюта!")
+            await interaction.followup.send("❌ Не удалось создать или найти роль для мьюта!", ephemeral=True)
             return
 
         if mute_role in member.roles:
-            await ctx.send("❌ Этот пользователь уже замьючен!")
+            await interaction.followup.send("❌ Этот пользователь уже замьючен!", ephemeral=True)
             return
 
         try:
@@ -887,52 +921,54 @@ class Moder(commands.Cog):
             )
             embed.add_field(name="Пользователь", value=member.mention, inline=True)
             embed.add_field(name="Длительность", value=time_formats[unit], inline=True)
-            embed.add_field(name="Модератор", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
             embed.add_field(name="Причина", value=reason, inline=False)
             embed.add_field(name="Размут", value=f"<t:{unmute_ts}:R>", inline=True)
 
-            await ctx.send(embed=embed)
+            await interaction.followup.send(embed=embed)
 
             # ЛС пользователю
             try:
                 dm_embed = discord.Embed(
                     title="⏰ Вы были временно замьючены",
-                    description=f"На сервере **{ctx.guild.name}**",
+                    description=f"На сервере **{interaction.guild.name}**",
                     color=discord.Color.orange()
                 )
                 dm_embed.add_field(name="Длительность", value=time_formats[unit], inline=True)
                 dm_embed.add_field(name="Размут", value=f"<t:{unmute_ts}:R>", inline=True)
-                dm_embed.add_field(name="Модератор", value=ctx.author.display_name, inline=False)
+                dm_embed.add_field(name="Модератор", value=interaction.user.display_name, inline=False)
                 dm_embed.add_field(name="Причина", value=reason, inline=False)
                 await member.send(embed=dm_embed)
             except Exception:
                 pass
 
             await self.log_action(
-                ctx.guild,
+                interaction.guild,
                 member=member,
                 action="Временный мьют (ручной)",
                 reason=f"{reason} | {time_formats[unit]}",
-                moderator=ctx.author,
+                moderator=interaction.user,
             )
 
         except discord.Forbidden:
-            await ctx.send("❌ У меня нет прав для выдачи ролей!")
+            await interaction.followup.send("❌ У меня нет прав для выдачи ролей!", ephemeral=True)
 
-    @commands.command(name="muted_list")
-    @commands.has_permissions(manage_roles=True)
-    async def muted_list(self, ctx: commands.Context):
+    @app_commands.command(name="muted_list", description="Показать список замьюченных пользователей")
+    @app_commands.default_permissions(manage_roles=True)
+    async def muted_list(self, interaction: discord.Interaction):
         """Показать список замьюченных пользователей."""
-        mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
+        await interaction.response.defer(ephemeral=True)
+
+        mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
 
         if not mute_role:
-            await ctx.send("❌ Роль для мьюта не найдена!")
+            await interaction.followup.send("❌ Роль для мьюта не найдена!")
             return
 
-        muted_members = [member for member in ctx.guild.members if mute_role in member.roles]
+        muted_members = [member for member in interaction.guild.members if mute_role in member.roles]
 
         if not muted_members:
-            await ctx.send("🔊 На сервере нет замьюченных пользователей!")
+            await interaction.followup.send("🔊 На сервере нет замьюченных пользователей!")
             return
 
         embed = discord.Embed(
@@ -940,7 +976,7 @@ class Moder(commands.Cog):
             color=discord.Color.orange()
         )
 
-        guild_id = str(ctx.guild.id)
+        guild_id = str(interaction.guild.id)
         guild_mutes = self.mutes.get(guild_id, {})
 
         for i, member in enumerate(muted_members[:10], 1):
@@ -960,16 +996,19 @@ class Moder(commands.Cog):
         if len(muted_members) > 10:
             embed.set_footer(text=f"И ещё {len(muted_members) - 10} пользователей...")
 
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed)
 
-    @commands.command(name="muteinfo")
-    @commands.has_permissions(manage_roles=True)
-    async def muteinfo(self, ctx: commands.Context, member: discord.Member):
+    @app_commands.command(name="muteinfo", description="Информация о мьюте пользователя")
+    @app_commands.describe(member="Пользователь для проверки мьюта")
+    @app_commands.default_permissions(manage_roles=True)
+    async def muteinfo(self, interaction: discord.Interaction, member: discord.Member):
         """Информация о мьюте пользователя."""
-        mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
+        await interaction.response.defer(ephemeral=True)
+
+        mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
 
         if not mute_role or mute_role not in member.roles:
-            await ctx.send("❌ Этот пользователь не замьючен!")
+            await interaction.followup.send("❌ Этот пользователь не замьючен!")
             return
 
         embed = discord.Embed(
@@ -980,7 +1019,7 @@ class Moder(commands.Cog):
         embed.add_field(name="Пользователь", value=member.mention, inline=True)
         embed.add_field(name="Статус", value="🔇 Замьючен", inline=True)
 
-        guild_id = str(ctx.guild.id)
+        guild_id = str(interaction.guild.id)
         uid = str(member.id)
         guild_mutes = self.mutes.get(guild_id, {})
 
@@ -994,7 +1033,7 @@ class Moder(commands.Cog):
 
         embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
 
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     # ===== Восстановление мьюта при заходе =====
 
@@ -1021,24 +1060,30 @@ class Moder(commands.Cog):
                 except Exception:
                     pass
 
-    # ===== Команды настройки (лог-канал и домены) =====
+    # ===== СЛЭШ-КОМАНДЫ НАСТРОЙКИ =====
 
-    @commands.command(name="setlog")
-    @commands.has_permissions(manage_guild=True)
-    async def setlog_command(self, ctx: commands.Context, channel: discord.TextChannel):
+    @app_commands.command(name="setlog", description="Установить лог-канал для модерации")
+    @app_commands.describe(channel="Канал для логов модерации")
+    @app_commands.default_permissions(manage_guild=True)
+    async def setlog_command(self, interaction: discord.Interaction, channel: discord.TextChannel):
         """Установить лог-канал для модерации."""
-        cfg = self.get_guild_config(ctx.guild)
+        await interaction.response.defer(ephemeral=True)
+
+        cfg = self.get_guild_config(interaction.guild)
         cfg["log_channel_id"] = channel.id
         self.save_config()
-        await ctx.send(f"✅ Лог-канал для модерации установлен: {channel.mention}")
+        await interaction.followup.send(f"✅ Лог-канал для модерации установлен: {channel.mention}")
 
-    @commands.command(name="adddomain")
-    @commands.has_permissions(manage_guild=True)
-    async def adddomain_command(self, ctx: commands.Context, domain: str):
+    @app_commands.command(name="adddomain", description="Добавить домен в белый список")
+    @app_commands.describe(domain="Домен для добавления в разрешенные")
+    @app_commands.default_permissions(manage_guild=True)
+    async def adddomain_command(self, interaction: discord.Interaction, domain: str):
         """
         Добавить домен в белый список (разрешённые ссылки).
-        Пример: !adddomain youtube.com
+        Пример: /adddomain youtube.com
         """
+        await interaction.response.defer(ephemeral=True)
+
         domain = domain.lower().strip()
         if domain.startswith("http://") or domain.startswith("https://"):
             parsed = urlparse(domain)
@@ -1046,7 +1091,7 @@ class Moder(commands.Cog):
         if domain.startswith("www."):
             domain = domain[4:]
 
-        cfg = self.get_guild_config(ctx.guild)
+        cfg = self.get_guild_config(interaction.guild)
         allowed = set(cfg.get("allowed_domains", []))
         blocked = set(cfg.get("blocked_domains", []))
 
@@ -1058,15 +1103,18 @@ class Moder(commands.Cog):
         cfg["blocked_domains"] = sorted(blocked)
         self.save_config()
 
-        await ctx.send(f"✅ Домен `{domain}` добавлен в **разрешённые**.")
+        await interaction.followup.send(f"✅ Домен `{domain}` добавлен в **разрешённые**.")
 
-    @commands.command(name="blockdomain")
-    @commands.has_permissions(manage_guild=True)
-    async def blockdomain_command(self, ctx: commands.Context, domain: str):
+    @app_commands.command(name="blockdomain", description="Добавить домен в черный список")
+    @app_commands.describe(domain="Домен для добавления в запрещенные")
+    @app_commands.default_permissions(manage_guild=True)
+    async def blockdomain_command(self, interaction: discord.Interaction, domain: str):
         """
         Добавить домен в чёрный список (запрещённые ссылки).
-        Пример: !blockdomain t.me
+        Пример: /blockdomain t.me
         """
+        await interaction.response.defer(ephemeral=True)
+
         domain = domain.lower().strip()
         if domain.startswith("http://") or domain.startswith("https://"):
             parsed = urlparse(domain)
@@ -1074,7 +1122,7 @@ class Moder(commands.Cog):
         if domain.startswith("www."):
             domain = domain[4:]
 
-        cfg = self.get_guild_config(ctx.guild)
+        cfg = self.get_guild_config(interaction.guild)
         allowed = set(cfg.get("allowed_domains", []))
         blocked = set(cfg.get("blocked_domains", []))
 
@@ -1086,17 +1134,19 @@ class Moder(commands.Cog):
         cfg["blocked_domains"] = sorted(blocked)
         self.save_config()
 
-        await ctx.send(f"✅ Домен `{domain}` добавлен в **запрещённые**.")
+        await interaction.followup.send(f"✅ Домен `{domain}` добавлен в **запрещённые**.")
 
-    @commands.command(name="domains")
-    @commands.has_permissions(manage_guild=True)
-    async def domains_command(self, ctx: commands.Context):
+    @app_commands.command(name="domains", description="Показать текущие списки доменов и лог-канал")
+    @app_commands.default_permissions(manage_guild=True)
+    async def domains_command(self, interaction: discord.Interaction):
         """Показать текущие списки доменов и лог-канал."""
-        cfg = self.get_guild_config(ctx.guild)
+        await interaction.response.defer(ephemeral=True)
+
+        cfg = self.get_guild_config(interaction.guild)
         allowed = cfg.get("allowed_domains", [])
         blocked = cfg.get("blocked_domains", [])
         log_id = cfg.get("log_channel_id")
-        log_channel = ctx.guild.get_channel(log_id) if log_id else None
+        log_channel = interaction.guild.get_channel(log_id) if log_id else None
 
         allowed_str = ", ".join(allowed) if allowed else "—"
         blocked_str = ", ".join(blocked) if blocked else "—"
@@ -1110,7 +1160,7 @@ class Moder(commands.Cog):
         embed.add_field(name="Разрешённые домены", value=allowed_str, inline=False)
         embed.add_field(name="Запрещённые домены", value=blocked_str, inline=False)
 
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
