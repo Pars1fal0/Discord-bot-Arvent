@@ -44,7 +44,18 @@ class TelegramBridge(commands.Cog):
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    loaded_config = json.load(f)
+
+                # Обновляем старый конфиг, добавляя отсутствующие ключи
+                for key, value in default_config.items():
+                    if key not in loaded_config:
+                        loaded_config[key] = value
+
+                # Сохраняем обновленный конфиг
+                with open(self.config_file, 'w', encoding='utf-8') as f:
+                    json.dump(loaded_config, f, indent=4, ensure_ascii=False)
+
+                return loaded_config
             else:
                 # Создаем файл с дефолтными настройками
                 with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -114,7 +125,10 @@ class TelegramBridge(commands.Cog):
         """Форматирование сообщения Discord для Telegram"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if self.config["message_format"] == "simple":
+        # Используем get с значением по умолчанию на случай отсутствия ключа
+        message_format = self.config.get("message_format", "detailed")
+
+        if message_format == "simple":
             # Простой формат
             if message.author.bot:
                 author = f"🤖 {message.author.display_name}"
@@ -176,14 +190,16 @@ class TelegramBridge(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message):
         """Обработка сообщений из Discord для отправки в Telegram"""
-        if not self.config["enabled"] or not self.config["forward_discord_to_telegram"]:
+        # Используем get с значениями по умолчанию для всех ключей
+        if not self.config.get("enabled", False) or not self.config.get("forward_discord_to_telegram", True):
             return
 
         # Проверяем, что сообщение из нужного канала логов
-        if not self.config["discord_log_channel_id"]:
+        discord_log_channel_id = self.config.get("discord_log_channel_id", "")
+        if not discord_log_channel_id:
             return
 
-        if str(message.channel.id) != str(self.config["discord_log_channel_id"]):
+        if str(message.channel.id) != str(discord_log_channel_id):
             return
 
         # Проверяем, не обрабатывали ли мы уже это сообщение (анти-дублирование)
@@ -204,13 +220,14 @@ class TelegramBridge(commands.Cog):
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
         """Обработка редактированных сообщений"""
-        if not self.config["enabled"] or not self.config["forward_discord_to_telegram"]:
+        if not self.config.get("enabled", False) or not self.config.get("forward_discord_to_telegram", True):
             return
 
-        if not self.config["discord_log_channel_id"]:
+        discord_log_channel_id = self.config.get("discord_log_channel_id", "")
+        if not discord_log_channel_id:
             return
 
-        if str(after.channel.id) != str(self.config["discord_log_channel_id"]):
+        if str(after.channel.id) != str(discord_log_channel_id):
             return
 
         # Отправляем уведомление о редактировании
@@ -227,13 +244,14 @@ class TelegramBridge(commands.Cog):
     @commands.Cog.listener()
     async def on_message_delete(self, message):
         """Обработка удаленных сообщений"""
-        if not self.config["enabled"] or not self.config["forward_discord_to_telegram"]:
+        if not self.config.get("enabled", False) or not self.config.get("forward_discord_to_telegram", True):
             return
 
-        if not self.config["discord_log_channel_id"]:
+        discord_log_channel_id = self.config.get("discord_log_channel_id", "")
+        if not discord_log_channel_id:
             return
 
-        if str(message.channel.id) != str(self.config["discord_log_channel_id"]):
+        if str(message.channel.id) != str(discord_log_channel_id):
             return
 
         # Отправляем уведомление об удалении
@@ -264,6 +282,7 @@ class TelegramBridge(commands.Cog):
             self.config["enabled"] = True
             self.config["include_bot_messages"] = True
             self.config["include_system_messages"] = True
+            self.config["message_format"] = "detailed"  # Убедимся, что ключ существует
 
             if self.save_config():
                 # Тестируем соединение с Telegram
@@ -314,23 +333,26 @@ class TelegramBridge(commands.Cog):
             color=discord.Color.blue()
         )
 
-        embed.add_field(name="🔄 Статус", value="✅ Включен" if self.config["enabled"] else "❌ Выключен", inline=True)
+        embed.add_field(name="🔄 Статус", value="✅ Включен" if self.config.get("enabled", False) else "❌ Выключен",
+                        inline=True)
         embed.add_field(name="Discord → Telegram", value="✅ Включено", inline=True)
         embed.add_field(name="🤖 Сообщения ботов",
-                        value="✅ Включены" if self.config["include_bot_messages"] else "❌ Выключены", inline=True)
+                        value="✅ Включены" if self.config.get("include_bot_messages", True) else "❌ Выключены",
+                        inline=True)
 
-        if self.config["telegram_bot_token"]:
+        if self.config.get("telegram_bot_token"):
             embed.add_field(name="🤖 Telegram Bot", value="✅ Настроен", inline=True)
         else:
             embed.add_field(name="🤖 Telegram Bot", value="❌ Не настроен", inline=True)
 
-        if self.config["telegram_chat_id"]:
+        if self.config.get("telegram_chat_id"):
             embed.add_field(name="💬 Telegram Chat", value="✅ Настроен", inline=True)
         else:
             embed.add_field(name="💬 Telegram Chat", value="❌ Не настроен", inline=True)
 
-        if self.config["discord_log_channel_id"]:
-            channel = self.bot.get_channel(int(self.config["discord_log_channel_id"]))
+        discord_log_channel_id = self.config.get("discord_log_channel_id")
+        if discord_log_channel_id:
+            channel = self.bot.get_channel(int(discord_log_channel_id))
             if channel:
                 embed.add_field(name="📋 Канал логов", value=channel.mention, inline=True)
             else:
@@ -338,11 +360,11 @@ class TelegramBridge(commands.Cog):
         else:
             embed.add_field(name="📋 Канал логов", value="❌ Не настроен", inline=True)
 
-        embed.add_field(name="📝 Формат",
-                        value="Детальный" if self.config["message_format"] == "detailed" else "Простой", inline=True)
+        message_format = self.config.get("message_format", "detailed")
+        embed.add_field(name="📝 Формат", value="Детальный" if message_format == "detailed" else "Простой", inline=True)
 
         # Тестируем соединение с Telegram
-        if self.config["enabled"] and self.config["telegram_bot_token"]:
+        if self.config.get("enabled", False) and self.config.get("telegram_bot_token"):
             test_success = await self.send_telegram_message("🔍 <b>Проверка связи моста логов...</b>")
             embed.add_field(name="📡 Соединение с Telegram", value="✅ Работает" if test_success else "❌ Ошибка",
                             inline=False)
@@ -393,7 +415,7 @@ class TelegramBridge(commands.Cog):
     @is_admin_or_owner()
     async def send_test_log(self, interaction: discord.Interaction, message: str):
         """Отправить тестовое сообщение в Telegram"""
-        if not self.config["enabled"]:
+        if not self.config.get("enabled", False):
             embed = discord.Embed(
                 title="❌ Мост отключен",
                 description="Сначала включите мост с помощью `/enable_logs_bridge`",
@@ -476,12 +498,14 @@ class TelegramBridge(commands.Cog):
             self.session = aiohttp.ClientSession()
 
         log_channel_info = "не настроен"
-        if self.config["discord_log_channel_id"]:
-            channel = self.bot.get_channel(int(self.config["discord_log_channel_id"]))
+        discord_log_channel_id = self.config.get("discord_log_channel_id")
+        if discord_log_channel_id:
+            channel = self.bot.get_channel(int(discord_log_channel_id))
             if channel:
                 log_channel_info = f"#{channel.name}"
 
-        print(f"🌉 Telegram Bridge для логов готов! Статус: {'✅ Включен' if self.config['enabled'] else '❌ Выключен'}")
+        print(
+            f"🌉 Telegram Bridge для логов готов! Статус: {'✅ Включен' if self.config.get('enabled', False) else '❌ Выключен'}")
         print(f"📋 Канал логов: {log_channel_info}")
 
     def cog_unload(self):
