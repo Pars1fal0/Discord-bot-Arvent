@@ -7,48 +7,38 @@ import sys
 
 
 class ConfirmView(discord.ui.View):
-    def __init__(self, action_type: str):
-        super().__init__(timeout=60)
+    def __init__(self, action_type: str, timeout: float = 60.0):
+        super().__init__(timeout=timeout)
         self.action_type = action_type
         self.value = None
+        self.interaction = None
 
-    @discord.ui.button(label='✅ Подтвердить', style=discord.ButtonStyle.danger)
+    @discord.ui.button(label='✅ Подтвердить', style=discord.ButtonStyle.danger, emoji='✅')
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.value = True
+        self.interaction = interaction
         self.stop()
 
-        if self.action_type == "shutdown":
-            embed = discord.Embed(
-                title="🔴 Выключение...",
-                description="Бот выключается...",
-                color=discord.Color.red()
-            )
-            await interaction.response.edit_message(embed=embed, view=None)
-            print(f"🛑 Бот выключен пользователем {interaction.user} (ID: {interaction.user.id})")
-            await asyncio.sleep(2)
-            await interaction.client.close()
-        else:  # restart
-            embed = discord.Embed(
-                title="🔄 Перезагрузка...",
-                description="Бот перезагружается...",
-                color=discord.Color.orange()
-            )
-            await interaction.response.edit_message(embed=embed, view=None)
-            print(f"🔄 Бот перезагружен пользователем {interaction.user} (ID: {interaction.user.id})")
-            await asyncio.sleep(2)
-            os.execv(sys.executable, ['python'] + sys.argv)
-
-    @discord.ui.button(label='❌ Отменить', style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label='❌ Отменить', style=discord.ButtonStyle.secondary, emoji='❌')
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.value = False
+        self.interaction = interaction
         self.stop()
 
-        embed = discord.Embed(
-            title="✅ Действие отменено",
-            description="Выключение/перезагрузка отменена",
-            color=discord.Color.green()
-        )
-        await interaction.response.edit_message(embed=embed, view=None)
+    async def on_timeout(self):
+        # Очищаем кнопки при таймауте
+        if self.interaction:
+            try:
+                embed = discord.Embed(
+                    title="⏰ Время вышло",
+                    description="Подтверждение отменено по таймауту",
+                    color=discord.Color.orange()
+                )
+                await self.interaction.edit_original_response(embed=embed, view=None)
+            except:
+                pass
 
 
 class ShutdownConfirm(commands.Cog):
@@ -73,8 +63,32 @@ class ShutdownConfirm(commands.Cog):
         view = ConfirmView("shutdown")
         await interaction.response.send_message(embed=embed, view=view)
 
-    @app_commands.command(name="restart_confirm",
-                          description="Перезагрузить бота с подтверждением (только для владельца)")
+        # Ждем ответа
+        await view.wait()
+
+        if view.value is True:
+            # Подтверждение получено - выключение
+            embed = discord.Embed(
+                title="🔴 Выключение...",
+                description="Бот выключается...",
+                color=discord.Color.red()
+            )
+            await view.interaction.edit_original_response(embed=embed, view=None)
+
+            print(f"🛑 Бот выключен пользователем {interaction.user} (ID: {interaction.user.id})")
+            await asyncio.sleep(2)
+            await self.bot.close()
+
+        elif view.value is False:
+            # Отмена
+            embed = discord.Embed(
+                title="✅ Действие отменено",
+                description="Выключение отменено",
+                color=discord.Color.green()
+            )
+            await view.interaction.edit_original_response(embed=embed, view=None)
+
+    @app_commands.command(name="restart_confirm", description="Перезагрузить бота с подтверждением (только для владельца)")
     @app_commands.checks.is_owner()
     async def restart_confirm(self, interaction: discord.Interaction):
         """Перезагрузить бота с подтверждением (только для владельца)"""
@@ -92,6 +106,31 @@ class ShutdownConfirm(commands.Cog):
         view = ConfirmView("restart")
         await interaction.response.send_message(embed=embed, view=view)
 
+        # Ждем ответа
+        await view.wait()
+
+        if view.value is True:
+            # Подтверждение получено - перезагрузка
+            embed = discord.Embed(
+                title="🔄 Перезагрузка...",
+                description="Бот перезагружается...",
+                color=discord.Color.orange()
+            )
+            await view.interaction.edit_original_response(embed=embed, view=None)
+
+            print(f"🔄 Бот перезагружен пользователем {interaction.user} (ID: {interaction.user.id})")
+            await asyncio.sleep(2)
+            os.execv(sys.executable, ['python'] + sys.argv)
+
+        elif view.value is False:
+            # Отмена
+            embed = discord.Embed(
+                title="✅ Действие отменено",
+                description="Перезагрузка отменена",
+                color=discord.Color.green()
+            )
+            await view.interaction.edit_original_response(embed=embed, view=None)
+
     # Обработчик ошибок для команд владельца
     @shutdown_confirm.error
     @restart_confirm.error
@@ -103,7 +142,20 @@ class ShutdownConfirm(commands.Cog):
                 description="Эта команда только для владельца бота!",
                 color=discord.Color.red()
             )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="❌ Произошла ошибка",
+                description=f"```{str(error)}```",
+                color=discord.Color.red()
+            )
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot):
