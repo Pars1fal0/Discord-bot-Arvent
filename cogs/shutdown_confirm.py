@@ -5,6 +5,8 @@ import asyncio
 import os
 import sys
 
+from cogs.shutdown import is_admin_or_owner
+
 
 def is_owner():
     """Проверка на владельца для слэш-команд"""
@@ -53,7 +55,7 @@ class ShutdownConfirm(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="shutdown_confirm", description="Выключить бота с подтверждением (только для владельца)")
-    @is_owner()
+    @is_admin_or_owner()
     async def shutdown_confirm(self, interaction: discord.Interaction):
         """Выключить бота с подтверждением (только для владельца)"""
         embed = discord.Embed(
@@ -96,7 +98,7 @@ class ShutdownConfirm(commands.Cog):
             await view.interaction.edit_original_response(embed=embed, view=None)
 
     @app_commands.command(name="restart_confirm", description="Перезагрузить бота с подтверждением (только для владельца)")
-    @is_owner()
+    @is_admin_or_owner()
     async def restart_confirm(self, interaction: discord.Interaction):
         """Перезагрузить бота с подтверждением (только для владельца)"""
         embed = discord.Embed(
