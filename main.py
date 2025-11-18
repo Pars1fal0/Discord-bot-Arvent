@@ -22,12 +22,23 @@ class MyBot(commands.Bot):
                     except Exception as e:
                         print(f'❌ Ошибка загрузки {filename}: {e}')
 
+
+bot = MyBot()
+
+@bot.event
+async def on_ready():
+    print(f'Бот {bot.user} запущен!')
+    try:
+        synced = await bot.tree.sync()
+        print(f"Синхронизировано {len(synced)} команд")
+    except Exception as e:
+        print(f"Ошибка синхронизации: {e}")
+
     async def on_ready(self):
         print(f'🤖 Бот {self.user} запущен!')
         print(f'📊 Подключен к {len(self.guilds)} серверам')
         await self.change_presence(activity=discord.Game(name="!help"))
 
-bot = MyBot()
 
 if __name__ == "__main__":
     load_dotenv()  # <— читаем .env
