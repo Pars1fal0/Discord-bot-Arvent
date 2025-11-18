@@ -7,6 +7,8 @@ import sys
 import asyncio
 from typing import List
 
+from typing_inspection.typing_objects import is_any
+
 from cogs.shutdown import is_admin_or_owner
 
 
@@ -275,7 +277,8 @@ class CogManager(commands.Cog):
                     "`/load_cog <имя> <код>` - создать и загрузить новый ког\n"
                     "`/reload_cog <имя> <код>` - обновить и перезагрузить ког\n"
                     "`/delete_cog <имя>` - удалить ког\n"
-                    "`/list_cogs` - показать этот список"
+                    "`/list_cogs` - показать этот список\n"
+                    "`/get_cog_info <имя>` - показать информацию о коге"
                 ),
                 inline=False
             )
@@ -290,10 +293,10 @@ class CogManager(commands.Cog):
             )
             await interaction.response.send_message(embed=error_embed, ephemeral=True)
 
-    @app_commands.command(name="cog_info", description="Показать информацию о коге (только для владельца)")
+    @app_commands.command(name="get_cog_info", description="Показать информацию о коге (только для владельца)")
     @app_commands.describe(cog_name="Название кога")
     @is_admin_or_owner()
-    async def cog_info(self, interaction: discord.Interaction, cog_name: str):
+    async def get_cog_info(self, interaction: discord.Interaction, cog_name: str):
         """Показать информацию о конкретном коге"""
         try:
             file_path = f'./cogs/{cog_name}.py'
@@ -360,7 +363,7 @@ class CogManager(commands.Cog):
     @reload_cog.error
     @delete_cog.error
     @list_cogs.error
-    @cog_info.error
+    @get_cog_info.error
     async def cog_manager_error(self, interaction: discord.Interaction, error):
         """Обработчик ошибок для команд управления когами"""
         if isinstance(error, app_commands.CheckFailure):
