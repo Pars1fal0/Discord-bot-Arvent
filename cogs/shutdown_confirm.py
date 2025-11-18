@@ -1,18 +1,63 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 import os
 import sys
 
 
+class ConfirmView(discord.ui.View):
+    def __init__(self, action_type: str):
+        super().__init__(timeout=60)
+        self.action_type = action_type
+        self.value = None
+
+    @discord.ui.button(label='✅ Подтвердить', style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.value = True
+        self.stop()
+
+        if self.action_type == "shutdown":
+            embed = discord.Embed(
+                title="🔴 Выключение...",
+                description="Бот выключается...",
+                color=discord.Color.red()
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            print(f"🛑 Бот выключен пользователем {interaction.user} (ID: {interaction.user.id})")
+            await asyncio.sleep(2)
+            await interaction.client.close()
+        else:  # restart
+            embed = discord.Embed(
+                title="🔄 Перезагрузка...",
+                description="Бот перезагружается...",
+                color=discord.Color.orange()
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            print(f"🔄 Бот перезагружен пользователем {interaction.user} (ID: {interaction.user.id})")
+            await asyncio.sleep(2)
+            os.execv(sys.executable, ['python'] + sys.argv)
+
+    @discord.ui.button(label='❌ Отменить', style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.value = False
+        self.stop()
+
+        embed = discord.Embed(
+            title="✅ Действие отменено",
+            description="Выключение/перезагрузка отменена",
+            color=discord.Color.green()
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
 class ShutdownConfirm(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.pending_shutdowns = {}
 
-    @commands.command()
-    @commands.is_owner()
-    async def shutdown(self, ctx):
+    @app_commands.command(name="shutdown_confirm", description="Выключить бота с подтверждением (только для владельца)")
+    @app_commands.checks.is_owner()
+    async def shutdown_confirm(self, interaction: discord.Interaction):
         """Выключить бота с подтверждением (только для владельца)"""
         embed = discord.Embed(
             title="🔴 Подтверждение выключения",
@@ -21,19 +66,17 @@ class ShutdownConfirm(commands.Cog):
         )
         embed.add_field(
             name="Для подтверждения",
-            value="Нажмите ✅ для выключения\nНажмите ❌ для отмены",
+            value="Нажмите кнопку ниже",
             inline=False
         )
 
-        message = await ctx.send(embed=embed)
-        await message.add_reaction("✅")
-        await message.add_reaction("❌")
+        view = ConfirmView("shutdown")
+        await interaction.response.send_message(embed=embed, view=view)
 
-        self.pending_shutdowns[ctx.author.id] = message.id
-
-    @commands.command()
-    @commands.is_owner()
-    async def restart(self, ctx):
+    @app_commands.command(name="restart_confirm",
+                          description="Перезагрузить бота с подтверждением (только для владельца)")
+    @app_commands.checks.is_owner()
+    async def restart_confirm(self, interaction: discord.Interaction):
         """Перезагрузить бота с подтверждением (только для владельца)"""
         embed = discord.Embed(
             title="🔄 Подтверждение перезагрузки",
@@ -42,87 +85,25 @@ class ShutdownConfirm(commands.Cog):
         )
         embed.add_field(
             name="Для подтверждения",
-            value="Нажмите ✅ для перезагрузки\nНажмите ❌ для отмены",
+            value="Нажмите кнопку ниже",
             inline=False
         )
 
-        message = await ctx.send(embed=embed)
-        await message.add_reaction("✅")
-        await message.add_reaction("❌")
+        view = ConfirmView("restart")
+        await interaction.response.send_message(embed=embed, view=view)
 
-        self.pending_shutdowns[ctx.author.id] = message.id
-
-    @commands.Cog.listener()
-    async def on_reaction_add(self, reaction, user):
-        """Обработка реакций для подтверждения выключения"""
-        if user.bot or user.id not in self.pending_shutdowns:
-            return
-
-        if reaction.message.id != self.pending_shutdowns[user.id]:
-            return
-
-        # Проверяем что это сообщение с подтверждением
-        if len(reaction.message.embeds) == 0:
-            return
-
-        embed = reaction.message.embeds[0]
-
-        if "Подтверждение выключения" in embed.title or "Подтверждение перезагрузки" in embed.title:
-            if str(reaction.emoji) == "✅":
-                # Подтверждение получено
-                if "выключения" in embed.title:
-                    # Выключение
-                    new_embed = discord.Embed(
-                        title="🔴 Выключение...",
-                        description="Бот выключается...",
-                        color=discord.Color.red()
-                    )
-                    await reaction.message.edit(embed=new_embed)
-                    await reaction.message.clear_reactions()
-
-                    print(f"🛑 Бот выключен пользователем {user} (ID: {user.id})")
-                    del self.pending_shutdowns[user.id]
-
-                    await asyncio.sleep(2)
-                    await self.bot.close()
-
-                elif "перезагрузки" in embed.title:
-                    # Перезагрузка
-                    new_embed = discord.Embed(
-                        title="🔄 Перезагрузка...",
-                        description="Бот перезагружается...",
-                        color=discord.Color.orange()
-                    )
-                    await reaction.message.edit(embed=new_embed)
-                    await reaction.message.clear_reactions()
-
-                    print(f"🔄 Бот перезагружен пользователем {user} (ID: {user.id})")
-                    del self.pending_shutdowns[user.id]
-
-                    await asyncio.sleep(2)
-                    os.execv(sys.executable, ['python'] + sys.argv)
-
-            elif str(reaction.emoji) == "❌":
-                # Отмена
-                new_embed = discord.Embed(
-                    title="✅ Действие отменено",
-                    description="Выключение/перезагрузка отменена",
-                    color=discord.Color.green()
-                )
-                await reaction.message.edit(embed=new_embed)
-                await reaction.message.clear_reactions()
-                del self.pending_shutdowns[user.id]
-
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
-        """Глобальная обработка ошибок для команд владельца"""
-        if isinstance(error, commands.NotOwner):
+    # Обработчик ошибок для команд владельца
+    @shutdown_confirm.error
+    @restart_confirm.error
+    async def owner_command_error(self, interaction: discord.Interaction, error):
+        """Обработчик ошибок для команд владельца"""
+        if isinstance(error, app_commands.CheckFailure):
             embed = discord.Embed(
                 title="❌ Доступ запрещен",
                 description="Эта команда только для владельца бота!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot):

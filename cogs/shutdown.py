@@ -1,72 +1,73 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 import os
 import sys
+import psutil
 
 
-def admin_or_owner():
-    """Проверка на владельца или администратора."""
-
-    async def predicate(ctx):
-        if await ctx.bot.is_owner(ctx.author):
+def is_admin_or_owner():
+    """Проверка на владельца или администратора для слэш-команд"""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if await interaction.client.is_owner(interaction.user):
             return True
-        if ctx.guild and ctx.author.guild_permissions.administrator:
+        if interaction.guild and interaction.user.guild_permissions.administrator:
             return True
-        raise commands.CheckFailure("Эта команда доступна только администраторам или владельцу бота.")
-
-    return commands.check(predicate)
+        raise app_commands.CheckFailure("Эта команда доступна только администраторам или владельцу бота.")
+    return app_commands.check(predicate)
 
 
 class Shutdown(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command()
-    @admin_or_owner()
-    async def shutdowns(self, ctx):
+    @app_commands.command(name="shutdown", description="Выключить бота (только для администраторов)")
+    @is_admin_or_owner()
+    async def shutdown(self, interaction: discord.Interaction):
         """Выключить бота (только для администраторов)"""
         embed = discord.Embed(
             title="🔴 Выключение бота",
             description="Бот выключается...",
             color=discord.Color.red()
         )
-        embed.add_field(name="Инициатор", value=ctx.author.mention, inline=True)
+        embed.add_field(name="Инициатор", value=interaction.user.mention, inline=True)
         embed.add_field(name="Время", value=f"<t:{int(discord.utils.utcnow().timestamp())}:R>", inline=True)
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
         # Даем время на отправку сообщения
         await asyncio.sleep(1)
 
-        print(f"🛑 Бот выключен пользователем {ctx.author} (ID: {ctx.author.id})")
+        print(f"🛑 Бот выключен пользователем {interaction.user} (ID: {interaction.user.id})")
         await self.bot.close()
 
-    @commands.command()
-    @admin_or_owner()
-    async def restarts(self, ctx):
+    @app_commands.command(name="restart", description="Перезагрузить бота (только для администраторов)")
+    @is_admin_or_owner()
+    async def restart(self, interaction: discord.Interaction):
         """Перезагрузить бота (только для администраторов)"""
         embed = discord.Embed(
             title="🔄 Перезагрузка бота",
             description="Бот перезагружается...",
             color=discord.Color.orange()
         )
-        embed.add_field(name="Инициатор", value=ctx.author.mention, inline=True)
+        embed.add_field(name="Инициатор", value=interaction.user.mention, inline=True)
         embed.add_field(name="Время", value=f"<t:{int(discord.utils.utcnow().timestamp())}:R>", inline=True)
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
         # Даем время на отправку сообщения
         await asyncio.sleep(1)
 
-        print(f"🔄 Бот перезагружен пользователем {ctx.author} (ID: {ctx.author.id})")
+        print(f"🔄 Бот перезагружен пользователем {interaction.user} (ID: {interaction.user.id})")
 
         # Перезапуск бота
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    @commands.command()
-    @admin_or_owner()
-    async def reload(self, ctx, cog: str = None):
+    @app_commands.command(name="reload", description="Перезагрузить ког или все коги (только для администраторов)")
+    @app_commands.describe(cog="Название кога для перезагрузки (оставьте пустым для перезагрузки всех)")
+    @is_admin_or_owner()
+    async def reload(self, interaction: discord.Interaction, cog: str = None):
         """Перезагрузить ког или все коги (только для администраторов)"""
         if cog:
             # Перезагрузка конкретного кога
@@ -77,7 +78,7 @@ class Shutdown(commands.Cog):
                     description=f"Ког `{cog}` успешно перезагружен!",
                     color=discord.Color.green()
                 )
-                print(f"🔄 Ког {cog} перезагружен пользователем {ctx.author}")
+                print(f"🔄 Ког {cog} перезагружен пользователем {interaction.user}")
             except commands.ExtensionNotLoaded:
                 embed = discord.Embed(
                     title="❌ Ошибка",
@@ -129,13 +130,14 @@ class Shutdown(commands.Cog):
                     inline=False
                 )
 
-            print(f"🔄 Все коги перезагружены пользователем {ctx.author}")
+            print(f"🔄 Все коги перезагружены пользователем {interaction.user}")
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
-    @commands.command()
-    @admin_or_owner()
-    async def load(self, ctx, cog: str):
+    @app_commands.command(name="load", description="Загрузить ког (только для администраторов)")
+    @app_commands.describe(cog="Название кога для загрузки")
+    @is_admin_or_owner()
+    async def load(self, interaction: discord.Interaction, cog: str):
         """Загрузить ког (только для администраторов)"""
         try:
             await self.bot.load_extension(f"cogs.{cog}")
@@ -144,7 +146,7 @@ class Shutdown(commands.Cog):
                 description=f"Ког `{cog}` успешно загружен!",
                 color=discord.Color.green()
             )
-            print(f"📥 Ког {cog} загружен пользователем {ctx.author}")
+            print(f"📥 Ког {cog} загружен пользователем {interaction.user}")
         except commands.ExtensionAlreadyLoaded:
             embed = discord.Embed(
                 title="❌ Ошибка",
@@ -164,11 +166,12 @@ class Shutdown(commands.Cog):
                 color=discord.Color.red()
             )
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
-    @commands.command()
-    @admin_or_owner()
-    async def unload(self, ctx, cog: str):
+    @app_commands.command(name="unload", description="Выгрузить ког (только для администраторов)")
+    @app_commands.describe(cog="Название кога для выгрузки")
+    @is_admin_or_owner()
+    async def unload(self, interaction: discord.Interaction, cog: str):
         """Выгрузить ког (только для администраторов)"""
         if cog == "shutdown":
             embed = discord.Embed(
@@ -176,7 +179,7 @@ class Shutdown(commands.Cog):
                 description="Нельзя выгрузить ког shutdown!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
             return
 
         try:
@@ -186,7 +189,7 @@ class Shutdown(commands.Cog):
                 description=f"Ког `{cog}` успешно выгружен!",
                 color=discord.Color.orange()
             )
-            print(f"📤 Ког {cog} выгружен пользователем {ctx.author}")
+            print(f"📤 Ког {cog} выгружен пользователем {interaction.user}")
         except commands.ExtensionNotLoaded:
             embed = discord.Embed(
                 title="❌ Ошибка",
@@ -200,11 +203,11 @@ class Shutdown(commands.Cog):
                 color=discord.Color.red()
             )
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
-    @commands.command()
-    @admin_or_owner()
-    async def cogs_list(self, ctx):
+    @app_commands.command(name="cogs_list", description="Показать список всех когов (только для администраторов)")
+    @is_admin_or_owner()
+    async def cogs_list(self, interaction: discord.Interaction):
         """Показать список всех когов (только для администраторов)"""
         loaded_cogs = []
         unloaded_cogs = []
@@ -240,21 +243,21 @@ class Shutdown(commands.Cog):
         embed.add_field(
             name="📋 Команды управления",
             value=(
-                "`!load <ког>` - загрузить ког\n"
-                "`!unload <ког>` - выгрузить ког\n"
-                "`!reload <ког>` - перезагрузить ког\n"
-                "`!reload` - перезагрузить все коги\n"
-                "`!restart` - перезапустить бота\n"
-                "`!shutdown` - выключить бота"
+                "`/load <ког>` - загрузить ког\n"
+                "`/unload <ког>` - выгрузить ког\n"
+                "`/reload <ког>` - перезагрузить ког\n"
+                "`/reload` - перезагрузить все коги\n"
+                "`/restart` - перезапустить бота\n"
+                "`/shutdown` - выключить бота"
             ),
             inline=False
         )
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
-    @commands.command()
-    @admin_or_owner()
-    async def bots_status(self, ctx):
+    @app_commands.command(name="bot_status", description="Показать статус бота (только для администраторов)")
+    @is_admin_or_owner()
+    async def bot_status(self, interaction: discord.Interaction):
         """Показать статус бота (только для администраторов)"""
         # Статистика бота
         guilds_count = len(self.bot.guilds)
@@ -267,7 +270,6 @@ class Shutdown(commands.Cog):
         uptime = discord.utils.utcnow() - self.bot.start_time
 
         # Использование памяти
-        import psutil
         process = psutil.Process()
         memory_usage = process.memory_info().rss / 1024 / 1024  # в MB
 
@@ -289,7 +291,7 @@ class Shutdown(commands.Cog):
         total_commands = len(self.bot.commands)
         embed.add_field(name="⚙️ Команды", value=total_commands, inline=True)
 
-        await ctx.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -297,25 +299,30 @@ class Shutdown(commands.Cog):
         if not hasattr(self.bot, 'start_time'):
             self.bot.start_time = discord.utils.utcnow()
 
-
-    # Защита от случайного выключения
-    @shutdowns.error
-    @restarts.error
+    # Обработчик ошибок для слэш-команд
+    @shutdown.error
+    @restart.error
     @reload.error
     @load.error
     @unload.error
     @cogs_list.error
-    @bots_status.error
-    async def owner_only_error(self, ctx, error):
-        """Обработчик ошибок для команд только для администратора или владельца"""
-        if isinstance(error, (commands.CheckFailure, commands.MissingPermissions)):
+    @bot_status.error
+    async def slash_command_error(self, interaction: discord.Interaction, error):
+        """Обработчик ошибок для слэш-команд"""
+        if isinstance(error, app_commands.CheckFailure):
             embed = discord.Embed(
                 title="❌ Доступ запрещен",
                 description="Эта команда доступна только администраторам сервера или владельцу бота!",
                 color=discord.Color.red()
             )
-            await ctx.send(embed=embed)
-
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="❌ Произошла ошибка",
+                description=f"```{str(error)}```",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot):
