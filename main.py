@@ -37,6 +37,7 @@ async def on_ready():
     async def on_ready(self):
         print(f'🤖 Бот {self.user} запущен!')
         print(f'📊 Подключен к {len(self.guilds)} серверам')
+        await self.change_presence(activity=discord.Game(name="!help"))
 
 
 if __name__ == "__main__":
