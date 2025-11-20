@@ -5,15 +5,11 @@ import asyncio
 import os
 import sys
 
-from cogs.shutdown import is_admin_or_owner
-
-
-def is_owner():
-    """Проверка на владельца для слэш-команд"""
+def is_bot_owner():
+    """Проверка на создателя бота для слэш-команд"""
     async def predicate(interaction: discord.Interaction) -> bool:
         return await interaction.client.is_owner(interaction.user)
     return app_commands.check(predicate)
-
 
 class ConfirmView(discord.ui.View):
     def __init__(self, action_type: str, timeout: float = 60.0):
@@ -49,15 +45,14 @@ class ConfirmView(discord.ui.View):
             except:
                 pass
 
-
 class ShutdownConfirm(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="shutdown_confirm", description="Выключить бота с подтверждением (только для владельца)")
-    @is_admin_or_owner()
+    @app_commands.command(name="shutdown_confirm", description="Выключить бота с подтверждением (только для создателя)")
+    @is_bot_owner()
     async def shutdown_confirm(self, interaction: discord.Interaction):
-        """Выключить бота с подтверждением (только для владельца)"""
+        """Выключить бота с подтверждением (только для создателя)"""
         embed = discord.Embed(
             title="🔴 Подтверждение выключения",
             description="Вы уверены, что хотите выключить бота?",
@@ -84,7 +79,7 @@ class ShutdownConfirm(commands.Cog):
             )
             await view.interaction.edit_original_response(embed=embed, view=None)
 
-            print(f"🛑 Бот выключен пользователем {interaction.user} (ID: {interaction.user.id})")
+            print(f"🛑 Бот выключен создателем {interaction.user} (ID: {interaction.user.id})")
             await asyncio.sleep(2)
             await self.bot.close()
 
@@ -97,10 +92,10 @@ class ShutdownConfirm(commands.Cog):
             )
             await view.interaction.edit_original_response(embed=embed, view=None)
 
-    @app_commands.command(name="restart_confirm", description="Перезагрузить бота с подтверждением (только для владельца)")
-    @is_admin_or_owner()
+    @app_commands.command(name="restart_confirm", description="Перезагрузить бота с подтверждением (только для создателя)")
+    @is_bot_owner()
     async def restart_confirm(self, interaction: discord.Interaction):
-        """Перезагрузить бота с подтверждением (только для владельца)"""
+        """Перезагрузить бота с подтверждением (только для создателя)"""
         embed = discord.Embed(
             title="🔄 Подтверждение перезагрузки",
             description="Вы уверены, что хотите перезагрузить бота?",
@@ -127,7 +122,7 @@ class ShutdownConfirm(commands.Cog):
             )
             await view.interaction.edit_original_response(embed=embed, view=None)
 
-            print(f"🔄 Бот перезагружен пользователем {interaction.user} (ID: {interaction.user.id})")
+            print(f"🔄 Бот перезагружен создателем {interaction.user} (ID: {interaction.user.id})")
             await asyncio.sleep(2)
             os.execv(sys.executable, ['python'] + sys.argv)
 
@@ -140,15 +135,15 @@ class ShutdownConfirm(commands.Cog):
             )
             await view.interaction.edit_original_response(embed=embed, view=None)
 
-    # Обработчик ошибок для команд владельца
+    # Обработчик ошибок для команд создателя
     @shutdown_confirm.error
     @restart_confirm.error
     async def owner_command_error(self, interaction: discord.Interaction, error):
-        """Обработчик ошибок для команд владельца"""
+        """Обработчик ошибок для команд создателя"""
         if isinstance(error, app_commands.CheckFailure):
             embed = discord.Embed(
                 title="❌ Доступ запрещен",
-                description="Эта команда только для владельца бота!",
+                description="Эта команда только для создателя бота!",
                 color=discord.Color.red()
             )
             if interaction.response.is_done():
@@ -165,7 +160,6 @@ class ShutdownConfirm(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 await interaction.response.send_message(embed=embed, ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(ShutdownConfirm(bot))

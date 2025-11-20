@@ -22,12 +22,51 @@ def is_admin_or_owner():
     return app_commands.check(predicate)
 
 
+def is_bot_owner():
+    """Проверка на создателя бота для слэш-команд"""
+
+    async def predicate(interaction: discord.Interaction) -> bool:
+        return await interaction.client.is_owner(interaction.user)
+
+    return app_commands.check(predicate)
+
+
 class Shutdown(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # ... остальные команды без изменений ...
+    # Команды выключения и перезагрузки - только для создателя бота
+    @app_commands.command(name="shutdown", description="Выключить бота (только для создателя)")
+    @is_bot_owner()
+    async def shutdown(self, interaction: discord.Interaction):
+        """Выключить бота (только для создателя)"""
+        embed = discord.Embed(
+            title="🔴 Выключение...",
+            description="Бот выключается...",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
 
+        print(f"🛑 Бот выключен создателем {interaction.user} (ID: {interaction.user.id})")
+        await asyncio.sleep(2)
+        await self.bot.close()
+
+    @app_commands.command(name="restart", description="Перезагрузить бота (только для создателя)")
+    @is_bot_owner()
+    async def restart(self, interaction: discord.Interaction):
+        """Перезагрузить бота (только для создателя)"""
+        embed = discord.Embed(
+            title="🔄 Перезагрузка...",
+            description="Бот перезагружается...",
+            color=discord.Color.orange()
+        )
+        await interaction.response.send_message(embed=embed)
+
+        print(f"🔄 Бот перезагружен создателем {interaction.user} (ID: {interaction.user.id})")
+        await asyncio.sleep(2)
+        os.execv(sys.executable, ['python'] + sys.argv)
+
+    # Команда статуса остается для администраторов
     @app_commands.command(name="status", description="Показать статус бота (только для администраторов)")
     @is_admin_or_owner()
     async def status(self, interaction: discord.Interaction):
@@ -79,7 +118,31 @@ class Shutdown(commands.Cog):
             )
             await interaction.response.send_message(embed=error_embed, ephemeral=True)
 
-    # ... остальной код без изменений ...
+    # Обработчик ошибок для команд создателя
+    @shutdown.error
+    @restart.error
+    async def owner_command_error(self, interaction: discord.Interaction, error):
+        """Обработчик ошибок для команд создателя"""
+        if isinstance(error, app_commands.CheckFailure):
+            embed = discord.Embed(
+                title="❌ Доступ запрещен",
+                description="Эта команда только для создателя бота!",
+                color=discord.Color.red()
+            )
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="❌ Произошла ошибка",
+                description=f"```{str(error)}```",
+                color=discord.Color.red()
+            )
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot):

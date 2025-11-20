@@ -307,9 +307,9 @@ class MusicCog(commands.Cog):
                 await voice_client.disconnect()
                 await interaction.channel.send("👋 Очередь пуста, отключаюсь")
 
-    @tasks.loop(seconds=5)
+    @tasks.loop(seconds=1)
     async def update_progress(self):
-        """Обновляет прогресс-бар каждые 5 секунд"""
+        """Обновляет прогресс-бар каждые секунду"""
         for guild_id, message in list(self.nowplaying_messages.items()):
             try:
                 if guild_id in self.current_songs:
