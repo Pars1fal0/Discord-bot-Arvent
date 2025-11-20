@@ -5,28 +5,62 @@ import asyncio
 import os
 import sys
 import psutil
+from dotenv import load_dotenv
+
+# Загружаем переменные из .env файла
+load_dotenv()
 
 
-def is_admin_or_owner():
-    """Проверка на владельца или администратора для слэш-команд"""
-
-    async def predicate(interaction: discord.Interaction) -> bool:
-        # Проверка владельца бота
-        if await interaction.client.is_owner(interaction.user):
-            return True
-        # Проверка прав администратора на сервере
-        if interaction.guild and interaction.user.guild_permissions.administrator:
-            return True
-        return False
-
-    return app_commands.check(predicate)
+def get_owner_id():
+    """Получить OWNER_ID из .env файла"""
+    owner_id = os.getenv('OWNER_ID')
+    if owner_id:
+        try:
+            return int(owner_id)
+        except (ValueError, TypeError):
+            print("❌ Ошибка: OWNER_ID в .env файле должен быть числом")
+            return None
+    else:
+        print("❌ Ошибка: OWNER_ID не найден в .env файле")
+        return None
 
 
 def is_bot_owner():
     """Проверка на создателя бота для слэш-команд"""
 
     async def predicate(interaction: discord.Interaction) -> bool:
-        return await interaction.client.is_owner(interaction.user)
+        owner_id = get_owner_id()
+        if owner_id is None:
+            # Если OWNER_ID не установлен, используем стандартную проверку
+            return await interaction.client.is_owner(interaction.user)
+
+        is_owner = interaction.user.id == owner_id
+        print(
+            f"🔍 Проверка прав: пользователь {interaction.user} (ID: {interaction.user.id}) - создатель: {is_owner} (ожидаемый ID: {owner_id})")
+        return is_owner
+
+    return app_commands.check(predicate)
+
+
+def is_admin_or_owner():
+    """Проверка на владельца или администратора для слэш-команд"""
+
+    async def predicate(interaction: discord.Interaction) -> bool:
+        owner_id = get_owner_id()
+
+        # Проверка создателя бота
+        if owner_id and interaction.user.id == owner_id:
+            return True
+
+        # Если OWNER_ID не установлен, используем стандартную проверку
+        if owner_id is None and await interaction.client.is_owner(interaction.user):
+            return True
+
+        # Проверка прав администратора на сервере
+        if interaction.guild and interaction.user.guild_permissions.administrator:
+            return True
+
+        return False
 
     return app_commands.check(predicate)
 
@@ -34,8 +68,31 @@ def is_bot_owner():
 class Shutdown(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.owner_id = get_owner_id()
 
-    # Команды выключения и перезагрузки - только для создателя бота
+    @app_commands.command(name="whoami", description="Показать информацию о правах пользователя")
+    async def whoami(self, interaction: discord.Interaction):
+        """Показать информацию о правах пользователя"""
+        owner_id = get_owner_id()
+        is_bot_owner = owner_id and interaction.user.id == owner_id
+        is_admin = interaction.guild and interaction.user.guild_permissions.administrator
+
+        embed = discord.Embed(
+            title="👤 Информация о правах",
+            color=discord.Color.blue(),
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.add_field(name="Пользователь", value=f"{interaction.user.mention} (ID: {interaction.user.id})",
+                        inline=False)
+        embed.add_field(name="Создатель бота", value="✅ Да" if is_bot_owner else "❌ Нет", inline=True)
+        embed.add_field(name="Администратор сервера", value="✅ Да" if is_admin else "❌ Нет", inline=True)
+
+        if owner_id:
+            embed.add_field(name="Ожидаемый ID создателя", value=owner_id, inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="shutdown", description="Выключить бота (только для создателя)")
     @is_bot_owner()
     async def shutdown(self, interaction: discord.Interaction):
@@ -66,7 +123,6 @@ class Shutdown(commands.Cog):
         await asyncio.sleep(2)
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    # Команда статуса остается для администраторов
     @app_commands.command(name="status", description="Показать статус бота (только для администраторов)")
     @is_admin_or_owner()
     async def status(self, interaction: discord.Interaction):
@@ -124,11 +180,22 @@ class Shutdown(commands.Cog):
     async def owner_command_error(self, interaction: discord.Interaction, error):
         """Обработчик ошибок для команд создателя"""
         if isinstance(error, app_commands.CheckFailure):
+            owner_id = get_owner_id()
+            is_owner = owner_id and interaction.user.id == owner_id
+
+            print(f"🚫 Отказ в доступе: {interaction.user} (ID: {interaction.user.id}) - создатель: {is_owner}")
+
             embed = discord.Embed(
                 title="❌ Доступ запрещен",
                 description="Эта команда только для создателя бота!",
                 color=discord.Color.red()
             )
+            embed.add_field(name="Ваш ID", value=interaction.user.id, inline=True)
+            embed.add_field(name="Вы создатель?", value="✅ Да" if is_owner else "❌ Нет", inline=True)
+
+            if owner_id:
+                embed.add_field(name="Ожидаемый ID создателя", value=owner_id, inline=False)
+
             if interaction.response.is_done():
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
