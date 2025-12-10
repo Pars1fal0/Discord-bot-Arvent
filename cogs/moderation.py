@@ -35,8 +35,8 @@ DEFAULT_BLOCKED_DOMAINS = {
 CAPS_MIN_LENGTH = 10
 CAPS_PERCENT = 0.7
 
-SPAM_WINDOW = 10  # окно для антифлуда (сек)
-SPAM_THRESHOLD = 3  # сколько сообщений за SPAM_WINDOW считается флудом
+SPAM_WINDOW = 5  # окно для антифлуда (сек)
+SPAM_THRESHOLD = 5  # сколько сообщений за SPAM_WINDOW считается флудом
 
 FLOOD_MUTE_MINUTES = 5  # мут при флуде (в минутах)
 
