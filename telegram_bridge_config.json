@@ -1,0 +1,10 @@
+{
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "discord_log_channel_id": "",
+    "enabled": false,
+    "forward_discord_to_telegram": true,
+    "include_bot_messages": true,
+    "include_system_messages": true,
+    "message_format": "detailed"
+}
