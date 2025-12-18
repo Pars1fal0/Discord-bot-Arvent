@@ -1,7 +1,16 @@
 import discord
 from discord.ext import commands
 import os
+import asyncio
 from dotenv import load_dotenv  # <— добавили
+
+# Dashboard imports (optional - will work without dashboard if imports fail)
+dashboard_enabled = False
+try:
+    from dashboard.app import create_app
+    dashboard_enabled = True
+except ImportError:
+    print('⚠️ Dashboard не установлен. Установите зависимости: pip install quart quart-cors')
 
 class MyBot(commands.Bot):
     def __init__(self):
@@ -49,6 +58,20 @@ async def on_ready():
     else:
         print('ℹ️ Синхронизация команд отключена (SYNC_COMMANDS=false)')
         print('   Для синхронизации команд установите SYNC_COMMANDS=true в .env')
+    
+    # Запуск веб-дашборда
+    if dashboard_enabled:
+        dashboard_host = os.getenv('DASHBOARD_HOST', 'http://localhost:5000')
+        dashboard_port = int(os.getenv('DASHBOARD_PORT', '5000'))
+        
+        try:
+            dashboard_app = create_app(bot)
+            asyncio.create_task(
+                dashboard_app.run_task(host='0.0.0.0', port=dashboard_port, debug=False)
+            )
+            print(f'🌐 Dashboard запущен на: {dashboard_host}')
+        except Exception as e:
+            print(f'❌ Ошибка запуска Dashboard: {e}')
 
 
 @bot.command(name='sync')

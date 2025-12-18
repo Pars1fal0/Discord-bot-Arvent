@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}Модерация | {{ guild.name }}{% endblock %}
+
+{% block content %}
+<div class="server-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar glass-card">
+        <div class="sidebar-header">
+            {% if guild.icon %}
+            <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=64"
+                alt="{{ guild.name }}" class="sidebar-icon">
+            {% else %}
+            <div class="sidebar-icon-placeholder">{{ guild.name[0] }}</div>
+            {% endif %}
+            <h2 class="sidebar-title">{{ guild.name }}</h2>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('views.server_dashboard', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Обзор</span>
+            </a>
+            <a href="{{ url_for('views.moderation_page', guild_id=guild_id) }}" class="nav-item active">
+                <span class="nav-icon">🛡️</span>
+                <span class="nav-text">Модерация</span>
+            </a>
+            <a href="{{ url_for('views.logging_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">Логирование</span>
+            </a>
+            <a href="{{ url_for('views.tickets_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎫</span>
+                <span class="nav-text">Тикеты</span>
+            </a>
+            <a href="{{ url_for('views.autorole_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">👋</span>
+                <span class="nav-text">Авторолей</span>
+            </a>
+            <a href="{{ url_for('views.tempvoice_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎤</span>
+                <span class="nav-text">Войс-каналы</span>
+            </a>
+            <a href="{{ url_for('views.streams_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📺</span>
+                <span class="nav-text">Стримы</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="{{ url_for('views.dashboard') }}" class="nav-item nav-back">
+                <span class="nav-icon">←</span>
+                <span class="nav-text">Назад к серверам</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="server-content">
+        <div class="page-header">
+            <h1>🛡️ Настройки модерации</h1>
+            <p class="page-subtitle">Управление фильтрами и защитой сервера</p>
+        </div>
+
+        <form id="moderation-form" class="settings-form">
+            <!-- Log Channel -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">📋 Канал логирования модерации</h3>
+                <p class="section-description">Канал для отправки логов действий модерации</p>
+
+                <div class="form-group">
+                    <label for="log-channel">Канал для логов</label>
+                    <select id="log-channel" name="log_channel_id" class="form-select">
+                        <option value="">Не выбран</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Allowed Domains -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">✅ Разрешённые домены</h3>
+                <p class="section-description">Ссылки на эти домены не будут блокироваться</p>
+
+                <div class="tags-container" id="allowed-domains-container">
+                    <!-- Tags will be added here -->
+                </div>
+
+                <div class="form-group form-inline">
+                    <input type="text" id="new-allowed-domain" class="form-input" placeholder="Например: twitch.tv">
+                    <button type="button" class="btn btn-secondary" onclick="addAllowedDomain()">
+                        + Добавить
+                    </button>
+                </div>
+            </div>
+
+            <!-- Blocked Domains -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">❌ Заблокированные домены</h3>
+                <p class="section-description">Ссылки на эти домены будут автоматически удаляться</p>
+
+                <div class="tags-container" id="blocked-domains-container">
+                    <!-- Tags will be added here -->
+                </div>
+
+                <div class="form-group form-inline">
+                    <input type="text" id="new-blocked-domain" class="form-input" placeholder="Например: spam-site.com">
+                    <button type="button" class="btn btn-secondary" onclick="addBlockedDomain()">
+                        + Добавить
+                    </button>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    💾 Сохранить настройки
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const guildId = '{{ guild_id }}';
+    let allowedDomains = [];
+    let blockedDomains = [];
+
+    // Load data on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadChannels();
+        await loadSettings();
+    });
+
+    async function loadChannels() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/channels`);
+            const channels = await response.json();
+
+            const select = document.getElementById('log-channel');
+            channels.text.forEach(channel => {
+                const option = document.createElement('option');
+                option.value = channel.id;
+                option.textContent = `#${channel.name}`;
+                if (channel.category_name) {
+                    option.textContent += ` (${channel.category_name})`;
+                }
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading channels:', error);
+        }
+    }
+
+    async function loadSettings() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/moderation`);
+            const settings = await response.json();
+
+            // Set log channel
+            if (settings.log_channel_id) {
+                document.getElementById('log-channel').value = settings.log_channel_id;
+            }
+
+            // Set allowed domains
+            allowedDomains = settings.allowed_domains || [];
+            renderDomains('allowed');
+
+            // Set blocked domains
+            blockedDomains = settings.blocked_domains || [];
+            renderDomains('blocked');
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    }
+
+    function renderDomains(type) {
+        const container = document.getElementById(`${type}-domains-container`);
+        const domains = type === 'allowed' ? allowedDomains : blockedDomains;
+
+        container.innerHTML = '';
+        domains.forEach((domain, index) => {
+            const tag = document.createElement('span');
+            tag.className = 'tag';
+            tag.innerHTML = `
+                ${domain}
+                <button type="button" class="tag-remove" onclick="removeDomain('${type}', ${index})">×</button>
+            `;
+            container.appendChild(tag);
+        });
+    }
+
+    function addAllowedDomain() {
+        const input = document.getElementById('new-allowed-domain');
+        const domain = input.value.trim().toLowerCase();
+
+        if (domain && !allowedDomains.includes(domain)) {
+            allowedDomains.push(domain);
+            renderDomains('allowed');
+            input.value = '';
+        }
+    }
+
+    function addBlockedDomain() {
+        const input = document.getElementById('new-blocked-domain');
+        const domain = input.value.trim().toLowerCase();
+
+        if (domain && !blockedDomains.includes(domain)) {
+            blockedDomains.push(domain);
+            renderDomains('blocked');
+            input.value = '';
+        }
+    }
+
+    function removeDomain(type, index) {
+        if (type === 'allowed') {
+            allowedDomains.splice(index, 1);
+        } else {
+            blockedDomains.splice(index, 1);
+        }
+        renderDomains(type);
+    }
+
+    // Form submit
+    document.getElementById('moderation-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const data = {
+            log_channel_id: document.getElementById('log-channel').value || null,
+            allowed_domains: allowedDomains,
+            blocked_domains: blockedDomains
+        };
+
+        try {
+            const response = await fetch(`/api/guild/${guildId}/moderation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showToast('Настройки сохранены!', 'success');
+            } else {
+                showToast(result.error || 'Ошибка сохранения', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            showToast('Ошибка сохранения настроек', 'error');
+        }
+    });
+</script>
+{% endblock %}

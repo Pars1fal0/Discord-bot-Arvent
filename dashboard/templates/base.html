@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dashboard{% endblock %} | Arvent Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% if user %}
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="{{ url_for('views.dashboard') }}">
+                <span class="brand-icon">🤖</span>
+                <span class="brand-text">Arvent</span>
+            </a>
+        </div>
+        
+        <div class="nav-user">
+            {% if user.avatar %}
+            <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png" 
+                 alt="Avatar" class="user-avatar">
+            {% else %}
+            <div class="user-avatar-placeholder">{{ user.username[0] }}</div>
+            {% endif %}
+            <span class="user-name">{{ user.global_name or user.username }}</span>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-ghost btn-sm">Выйти</a>
+        </div>
+    </nav>
+    {% endif %}
+    
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <div id="toast-container"></div>
+    
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

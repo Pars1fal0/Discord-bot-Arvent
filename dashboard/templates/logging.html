@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Логирование | {{ guild.name }}{% endblock %}
+
+{% block content %}
+<div class="server-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar glass-card">
+        <div class="sidebar-header">
+            {% if guild.icon %}
+            <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=64"
+                alt="{{ guild.name }}" class="sidebar-icon">
+            {% else %}
+            <div class="sidebar-icon-placeholder">{{ guild.name[0] }}</div>
+            {% endif %}
+            <h2 class="sidebar-title">{{ guild.name }}</h2>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('views.server_dashboard', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Обзор</span>
+            </a>
+            <a href="{{ url_for('views.moderation_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🛡️</span>
+                <span class="nav-text">Модерация</span>
+            </a>
+            <a href="{{ url_for('views.logging_page', guild_id=guild_id) }}" class="nav-item active">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">Логирование</span>
+            </a>
+            <a href="{{ url_for('views.tickets_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎫</span>
+                <span class="nav-text">Тикеты</span>
+            </a>
+            <a href="{{ url_for('views.autorole_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">👋</span>
+                <span class="nav-text">Авторолей</span>
+            </a>
+            <a href="{{ url_for('views.tempvoice_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎤</span>
+                <span class="nav-text">Войс-каналы</span>
+            </a>
+            <a href="{{ url_for('views.streams_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📺</span>
+                <span class="nav-text">Стримы</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="{{ url_for('views.dashboard') }}" class="nav-item nav-back">
+                <span class="nav-icon">←</span>
+                <span class="nav-text">Назад к серверам</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="server-content">
+        <div class="page-header">
+            <h1>📋 Настройки логирования</h1>
+            <p class="page-subtitle">Отслеживание событий на сервере</p>
+        </div>
+
+        <form id="logging-form" class="settings-form">
+            <!-- Log Channel -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">📌 Канал для логов</h3>
+                <p class="section-description">Выберите канал куда будут отправляться логи событий</p>
+
+                <div class="form-group">
+                    <label for="log-channel">Канал</label>
+                    <select id="log-channel" name="log_channel" class="form-select">
+                        <option value="">Не выбран (логирование отключено)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Events -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">📊 События для логирования</h3>
+                <p class="section-description">Выберите какие события должны логироваться</p>
+
+                <div class="checkbox-grid">
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-message_delete" name="message_delete">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">🗑️</span>
+                            <span class="checkbox-label">Удаление сообщений</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-message_edit" name="message_edit">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">✏️</span>
+                            <span class="checkbox-label">Редактирование сообщений</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-member_join" name="member_join">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">📥</span>
+                            <span class="checkbox-label">Вход участников</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-member_leave" name="member_leave">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">📤</span>
+                            <span class="checkbox-label">Выход участников</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-member_ban" name="member_ban">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">🔨</span>
+                            <span class="checkbox-label">Баны</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-member_unban" name="member_unban">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">🔓</span>
+                            <span class="checkbox-label">Разбаны</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-member_update" name="member_update">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">👤</span>
+                            <span class="checkbox-label">Изменения участников</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-role_changes" name="role_changes">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">🎭</span>
+                            <span class="checkbox-label">Изменения ролей</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-channel_changes" name="channel_changes">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">📁</span>
+                            <span class="checkbox-label">Изменения каналов</span>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-card">
+                        <input type="checkbox" id="event-voice_changes" name="voice_changes">
+                        <span class="checkbox-content">
+                            <span class="checkbox-icon">🔊</span>
+                            <span class="checkbox-label">Голосовые каналы</span>
+                        </span>
+                    </label>
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <button type="button" class="btn btn-ghost" onclick="toggleAllEvents(true)">
+                        Включить все
+                    </button>
+                    <button type="button" class="btn btn-ghost" onclick="toggleAllEvents(false)">
+                        Выключить все
+                    </button>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    💾 Сохранить настройки
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const guildId = '{{ guild_id }}';
+
+    const eventTypes = [
+        'message_delete', 'message_edit', 'member_join', 'member_leave',
+        'member_ban', 'member_unban', 'member_update', 'role_changes',
+        'channel_changes', 'voice_changes'
+    ];
+
+    // Load data on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadChannels();
+        await loadSettings();
+    });
+
+    async function loadChannels() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/channels`);
+            const channels = await response.json();
+
+            const select = document.getElementById('log-channel');
+            channels.text.forEach(channel => {
+                const option = document.createElement('option');
+                option.value = channel.id;
+                option.textContent = `#${channel.name}`;
+                if (channel.category_name) {
+                    option.textContent += ` (${channel.category_name})`;
+                }
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading channels:', error);
+        }
+    }
+
+    async function loadSettings() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/logging`);
+            const settings = await response.json();
+
+            // Set log channel
+            if (settings.log_channel) {
+                document.getElementById('log-channel').value = settings.log_channel;
+            }
+
+            // Set enabled events
+            const enabledEvents = settings.enabled_events || {};
+            eventTypes.forEach(event => {
+                const checkbox = document.getElementById(`event-${event}`);
+                if (checkbox) {
+                    checkbox.checked = enabledEvents[event] !== false;
+                }
+            });
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    }
+
+    function toggleAllEvents(enable) {
+        eventTypes.forEach(event => {
+            const checkbox = document.getElementById(`event-${event}`);
+            if (checkbox) {
+                checkbox.checked = enable;
+            }
+        });
+    }
+
+    // Form submit
+    document.getElementById('logging-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const enabledEvents = {};
+        eventTypes.forEach(event => {
+            const checkbox = document.getElementById(`event-${event}`);
+            enabledEvents[event] = checkbox ? checkbox.checked : false;
+        });
+
+        const data = {
+            log_channel: document.getElementById('log-channel').value || null,
+            enabled_events: enabledEvents
+        };
+
+        try {
+            const response = await fetch(`/api/guild/${guildId}/logging`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showToast('Настройки логирования сохранены!', 'success');
+            } else {
+                showToast(result.error || 'Ошибка сохранения', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            showToast('Ошибка сохранения настроек', 'error');
+        }
+    });
+</script>
+{% endblock %}

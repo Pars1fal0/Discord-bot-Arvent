@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Приветствия | {{ guild.name }}{% endblock %}
+
+{% block content %}
+<div class="server-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar glass-card">
+        <div class="sidebar-header">
+            {% if guild.icon %}
+            <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=64"
+                alt="{{ guild.name }}" class="sidebar-icon">
+            {% else %}
+            <div class="sidebar-icon-placeholder">{{ guild.name[0] }}</div>
+            {% endif %}
+            <h2 class="sidebar-title">{{ guild.name }}</h2>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('views.server_dashboard', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Обзор</span>
+            </a>
+            <a href="{{ url_for('views.moderation_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🛡️</span>
+                <span class="nav-text">Модерация</span>
+            </a>
+            <a href="{{ url_for('views.logging_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">Логирование</span>
+            </a>
+            <a href="{{ url_for('views.tickets_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎫</span>
+                <span class="nav-text">Тикеты</span>
+            </a>
+            <a href="{{ url_for('views.autorole_page', guild_id=guild_id) }}" class="nav-item active">
+                <span class="nav-icon">👋</span>
+                <span class="nav-text">Авторолей</span>
+            </a>
+            <a href="{{ url_for('views.tempvoice_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎤</span>
+                <span class="nav-text">Войс-каналы</span>
+            </a>
+            <a href="{{ url_for('views.streams_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📺</span>
+                <span class="nav-text">Стримы</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="{{ url_for('views.dashboard') }}" class="nav-item nav-back">
+                <span class="nav-icon">←</span>
+                <span class="nav-text">Назад к серверам</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="server-content">
+        <div class="page-header">
+            <h1>👋 Приветствия и авторолей</h1>
+            <p class="page-subtitle">Настройки для новых участников сервера</p>
+        </div>
+
+        <form id="autorole-form" class="settings-form">
+            <!-- Autorole Info -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">🎭 Авто-роль</h3>
+                <p class="section-description">Роль выдаётся автоматически всем новым участникам</p>
+
+                <div class="info-box">
+                    <span class="info-icon">ℹ️</span>
+                    <div class="info-content">
+                        <p>Текущая авто-роль привязана к ID в коде бота.</p>
+                        <p>Для изменения авто-роли необходимо отредактировать файл <code>autorole.py</code></p>
+                        <p><strong>Текущий ID:</strong> <code id="autorole-id">—</code></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Welcome Channel -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">📢 Канал приветствий</h3>
+                <p class="section-description">Канал для отправки приветственных сообщений</p>
+
+                <div class="form-group">
+                    <label for="welcome-channel">Канал</label>
+                    <select id="welcome-channel" name="welcome_channel_id" class="form-select">
+                        <option value="">Не выбран (приветствия отключены)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Preview -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">👁️ Превью приветствия</h3>
+                <p class="section-description">Примерный вид приветственного сообщения</p>
+
+                <div class="preview-embed">
+                    <div class="embed-content">
+                        <div class="embed-title">🎉 Добро пожаловать, @Username! 👋</div>
+                        <div class="embed-description">
+                            Рады тебя видеть на сервере <strong>{{ guild.name }}</strong>!
+                        </div>
+                    </div>
+                    <div class="embed-thumbnail">
+                        <div class="embed-thumbnail-placeholder">👤</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    💾 Сохранить настройки
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const guildId = '{{ guild_id }}';
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadChannels();
+        await loadSettings();
+    });
+
+    async function loadChannels() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/channels`);
+            const channels = await response.json();
+
+            const select = document.getElementById('welcome-channel');
+            channels.text.forEach(channel => {
+                const option = document.createElement('option');
+                option.value = channel.id;
+                option.textContent = `#${channel.name}`;
+                if (channel.category_name) {
+                    option.textContent += ` (${channel.category_name})`;
+                }
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading channels:', error);
+        }
+    }
+
+    async function loadSettings() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/autorole`);
+            const settings = await response.json();
+
+            // Show autorole ID
+            if (settings.autorole_id) {
+                document.getElementById('autorole-id').textContent = settings.autorole_id;
+            }
+
+            // Set welcome channel
+            if (settings.welcome_channel_id) {
+                document.getElementById('welcome-channel').value = settings.welcome_channel_id;
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    }
+
+    // Form submit
+    document.getElementById('autorole-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const data = {
+            welcome_channel_id: document.getElementById('welcome-channel').value || null
+        };
+
+        try {
+            const response = await fetch(`/api/guild/${guildId}/autorole`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showToast('Настройки приветствий сохранены!', 'success');
+            } else {
+                showToast(result.error || 'Ошибка сохранения', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            showToast('Ошибка сохранения настроек', 'error');
+        }
+    });
+</script>
+{% endblock %}

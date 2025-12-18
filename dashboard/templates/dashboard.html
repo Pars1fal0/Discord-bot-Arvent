@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Выбор сервера{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="page-header">
+        <h1>Выберите сервер</h1>
+        <p class="page-subtitle">Серверы, где вы являетесь администратором</p>
+    </div>
+
+    {% if guilds %}
+    <div class="guilds-grid">
+        {% for guild in guilds %}
+        <a href="{{ url_for('views.server_dashboard', guild_id=guild.id) }}" class="guild-card glass-card">
+            <div class="guild-icon-container">
+                {% if guild.icon %}
+                <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=128"
+                    alt="{{ guild.name }}" class="guild-icon">
+                {% else %}
+                <div class="guild-icon-placeholder">
+                    {{ guild.name[0] }}
+                </div>
+                {% endif %}
+            </div>
+            <div class="guild-info">
+                <h3 class="guild-name">{{ guild.name }}</h3>
+                {% if guild.owner %}
+                <span class="guild-badge owner-badge">👑 Владелец</span>
+                {% else %}
+                <span class="guild-badge admin-badge">⚡ Админ</span>
+                {% endif %}
+            </div>
+            <div class="guild-arrow">→</div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state glass-card">
+        <div class="empty-icon">🔍</div>
+        <h2>Серверы не найдены</h2>
+        <p>Для управления ботом вы должны быть администратором сервера, где присутствует Arvent Bot.</p>
+        <a href="https://discord.com/api/oauth2/authorize?client_id={{ config.DISCORD_CLIENT_ID }}&permissions=8&scope=bot%20applications.commands"
+            target="_blank" class="btn btn-primary">
+            Добавить бота на сервер
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

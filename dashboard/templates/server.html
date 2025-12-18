@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}{{ guild.name }}{% endblock %}
+
+{% block content %}
+<div class="server-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar glass-card">
+        <div class="sidebar-header">
+            {% if guild.icon %}
+            <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=64"
+                alt="{{ guild.name }}" class="sidebar-icon">
+            {% else %}
+            <div class="sidebar-icon-placeholder">{{ guild.name[0] }}</div>
+            {% endif %}
+            <h2 class="sidebar-title">{{ guild.name }}</h2>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('views.server_dashboard', guild_id=guild_id) }}" class="nav-item active">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Обзор</span>
+            </a>
+            <a href="{{ url_for('views.moderation_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🛡️</span>
+                <span class="nav-text">Модерация</span>
+            </a>
+            <a href="{{ url_for('views.logging_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">Логирование</span>
+            </a>
+            <a href="{{ url_for('views.tickets_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎫</span>
+                <span class="nav-text">Тикеты</span>
+            </a>
+            <a href="{{ url_for('views.autorole_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">👋</span>
+                <span class="nav-text">Авторолей</span>
+            </a>
+            <a href="{{ url_for('views.tempvoice_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎤</span>
+                <span class="nav-text">Войс-каналы</span>
+            </a>
+            <a href="{{ url_for('views.streams_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📺</span>
+                <span class="nav-text">Стримы</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="{{ url_for('views.dashboard') }}" class="nav-item nav-back">
+                <span class="nav-icon">←</span>
+                <span class="nav-text">Назад к серверам</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="server-content">
+        <div class="page-header">
+            <h1>📊 Обзор сервера</h1>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card glass-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-members">—</span>
+                    <span class="stat-label">Участников</span>
+                </div>
+            </div>
+            <div class="stat-card glass-card">
+                <div class="stat-icon">🟢</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-online">—</span>
+                    <span class="stat-label">Онлайн</span>
+                </div>
+            </div>
+            <div class="stat-card glass-card">
+                <div class="stat-icon">💬</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-text-channels">—</span>
+                    <span class="stat-label">Текстовых каналов</span>
+                </div>
+            </div>
+            <div class="stat-card glass-card">
+                <div class="stat-icon">🔊</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-voice-channels">—</span>
+                    <span class="stat-label">Голосовых каналов</span>
+                </div>
+            </div>
+            <div class="stat-card glass-card">
+                <div class="stat-icon">🎭</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-roles">—</span>
+                    <span class="stat-label">Ролей</span>
+                </div>
+            </div>
+            <div class="stat-card glass-card">
+                <div class="stat-icon">💎</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-boosts">—</span>
+                    <span class="stat-label">Бустов</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="section">
+            <h2 class="section-title">⚡ Быстрые настройки</h2>
+            <div class="quick-actions-grid">
+                <a href="{{ url_for('views.moderation_page', guild_id=guild_id) }}" class="action-card glass-card">
+                    <span class="action-icon">🛡️</span>
+                    <h3>Модерация</h3>
+                    <p>Фильтры ссылок, анти-спам, предупреждения</p>
+                </a>
+                <a href="{{ url_for('views.logging_page', guild_id=guild_id) }}" class="action-card glass-card">
+                    <span class="action-icon">📋</span>
+                    <h3>Логирование</h3>
+                    <p>Отслеживание действий на сервере</p>
+                </a>
+                <a href="{{ url_for('views.tickets_page', guild_id=guild_id) }}" class="action-card glass-card">
+                    <span class="action-icon">🎫</span>
+                    <h3>Тикеты</h3>
+                    <p>Система поддержки пользователей</p>
+                </a>
+                <a href="{{ url_for('views.autorole_page', guild_id=guild_id) }}" class="action-card glass-card">
+                    <span class="action-icon">👋</span>
+                    <h3>Приветствия</h3>
+                    <p>Авторолей и приветственные сообщения</p>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const guildId = '{{ guild_id }}';
+
+    // Load stats on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/stats`);
+            const stats = await response.json();
+
+            document.getElementById('stat-members').textContent = stats.member_count?.toLocaleString() || '—';
+            document.getElementById('stat-online').textContent = stats.online_count?.toLocaleString() || '—';
+            document.getElementById('stat-text-channels').textContent = stats.text_channels || '—';
+            document.getElementById('stat-voice-channels').textContent = stats.voice_channels || '—';
+            document.getElementById('stat-roles').textContent = stats.role_count || '—';
+            document.getElementById('stat-boosts').textContent = stats.boost_count || '0';
+        } catch (error) {
+            console.error('Error loading stats:', error);
+        }
+    });
+</script>
+{% endblock %}

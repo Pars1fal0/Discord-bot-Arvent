@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Стримы | {{ guild.name }}{% endblock %}
+
+{% block content %}
+<div class="server-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar glass-card">
+        <div class="sidebar-header">
+            {% if guild.icon %}
+            <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=64"
+                alt="{{ guild.name }}" class="sidebar-icon">
+            {% else %}
+            <div class="sidebar-icon-placeholder">{{ guild.name[0] }}</div>
+            {% endif %}
+            <h2 class="sidebar-title">{{ guild.name }}</h2>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('views.server_dashboard', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Обзор</span>
+            </a>
+            <a href="{{ url_for('views.moderation_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🛡️</span>
+                <span class="nav-text">Модерация</span>
+            </a>
+            <a href="{{ url_for('views.logging_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">Логирование</span>
+            </a>
+            <a href="{{ url_for('views.tickets_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎫</span>
+                <span class="nav-text">Тикеты</span>
+            </a>
+            <a href="{{ url_for('views.autorole_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">👋</span>
+                <span class="nav-text">Авторолей</span>
+            </a>
+            <a href="{{ url_for('views.tempvoice_page', guild_id=guild_id) }}" class="nav-item">
+                <span class="nav-icon">🎤</span>
+                <span class="nav-text">Войс-каналы</span>
+            </a>
+            <a href="{{ url_for('views.streams_page', guild_id=guild_id) }}" class="nav-item active">
+                <span class="nav-icon">📺</span>
+                <span class="nav-text">Стримы</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="{{ url_for('views.dashboard') }}" class="nav-item nav-back">
+                <span class="nav-icon">←</span>
+                <span class="nav-text">Назад к серверам</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="server-content">
+        <div class="page-header">
+            <h1>📺 Уведомления о стримах</h1>
+            <p class="page-subtitle">Автоматические анонсы стримов участников на Twitch/YouTube</p>
+        </div>
+
+        <form id="streams-form" class="settings-form">
+            <!-- Enable/Disable -->
+            <div class="form-section glass-card">
+                <div class="toggle-header">
+                    <div>
+                        <h3 class="section-title">⚡ Статус</h3>
+                        <p class="section-description">Включить или выключить уведомления о стримах</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="streams-enabled" name="enabled">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Notification Channel -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">📢 Канал уведомлений</h3>
+                <p class="section-description">Канал для отправки анонсов стримов</p>
+
+                <div class="form-group">
+                    <label for="stream-channel">Канал</label>
+                    <select id="stream-channel" name="channel_id" class="form-select">
+                        <option value="">Не выбран</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Ping Role -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">📌 Роль для пинга</h3>
+                <p class="section-description">Роль, которую пинговать при анонсе (опционально)</p>
+
+                <div class="form-group">
+                    <label for="ping-role">Роль</label>
+                    <select id="ping-role" name="ping_role_id" class="form-select">
+                        <option value="">Не пинговать</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Embed Color -->
+            <div class="form-section glass-card">
+                <h3 class="section-title">🎨 Цвет embed</h3>
+                <p class="section-description">Цвет полоски уведомления</p>
+
+                <div class="form-group form-inline">
+                    <input type="color" id="embed-color" name="embed_color" value="#9146FF" class="form-color">
+                    <span class="color-label">По умолчанию: Twitch Purple</span>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    💾 Сохранить настройки
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const guildId = '{{ guild_id }}';
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await Promise.all([loadChannels(), loadRoles()]);
+        await loadSettings();
+    });
+
+    async function loadChannels() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/channels`);
+            const channels = await response.json();
+
+            const select = document.getElementById('stream-channel');
+            channels.text.forEach(channel => {
+                const option = document.createElement('option');
+                option.value = channel.id;
+                option.textContent = `#${channel.name}`;
+                if (channel.category_name) {
+                    option.textContent += ` (${channel.category_name})`;
+                }
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading channels:', error);
+        }
+    }
+
+    async function loadRoles() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/roles`);
+            const roles = await response.json();
+
+            const select = document.getElementById('ping-role');
+            roles.forEach(role => {
+                const option = document.createElement('option');
+                option.value = role.id;
+                option.textContent = `@${role.name}`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading roles:', error);
+        }
+    }
+
+    async function loadSettings() {
+        try {
+            const response = await fetch(`/api/guild/${guildId}/streams`);
+            const settings = await response.json();
+
+            // Set enabled
+            document.getElementById('streams-enabled').checked = settings.enabled || false;
+
+            // Set channel
+            if (settings.channel_id) {
+                document.getElementById('stream-channel').value = settings.channel_id;
+            }
+
+            // Set ping role
+            if (settings.ping_role_id) {
+                document.getElementById('ping-role').value = settings.ping_role_id;
+            }
+
+            // Set embed color
+            if (settings.embed_color) {
+                document.getElementById('embed-color').value = settings.embed_color;
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    }
+
+    // Form submit
+    document.getElementById('streams-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const data = {
+            enabled: document.getElementById('streams-enabled').checked,
+            channel_id: document.getElementById('stream-channel').value || null,
+            ping_role_id: document.getElementById('ping-role').value || null,
+            embed_color: document.getElementById('embed-color').value
+        };
+
+        try {
+            const response = await fetch(`/api/guild/${guildId}/streams`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showToast('Настройки стримов сохранены!', 'success');
+            } else {
+                showToast(result.error || 'Ошибка сохранения', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            showToast('Ошибка сохранения настроек', 'error');
+        }
+    });
+</script>
+{% endblock %}
